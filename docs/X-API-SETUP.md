@@ -1,10 +1,17 @@
 # X API setup and costs
 
-Open **Integrations → Connect X account**. For the first connection, create an application in the [X Developer Console](https://console.x.com/) and enable OAuth 2.0 user authentication. A Native App is a public client and needs its Client ID. Register the exact redirect shown in the dialog, then paste the Client ID and click **Save and connect to X**. Confidential clients can add their Client Secret under **X app options**. Credentials are stored encrypted on your server. [X OAuth with PKCE](https://docs.x.com/fundamentals/authentication/oauth-2-0/authorization-code)
+Open **Integrations → Connect X account** to start the wizard. It keeps the X console open in a separate tab and provides values you can copy at each step.
+
+1. Sign in to the X console and complete the **Developer Program** form with the prepared use-case description.
+2. Choose **New App**. Use the suggested name and the description and use case shown in the wizard.
+3. Open **User authentication settings**. Choose **Native App** and **Read**, or enable **Read and write** for individually confirmed follow and unfollow actions. Copy the exact **Callback URI / Redirect URL** and **Website URL** from the wizard.
+4. Copy the OAuth 2.0 **Client ID** from **Keys and tokens**. Paste it in the wizard and select **Save and connect to X**, then approve access on X. If you already have a Client ID, use **I have a Client ID** to go straight to this step. Confidential clients can add their Client Secret under **Advanced options**. The app stores credentials encrypted on your server.
+
+[X Developer setup](https://docs.x.com/x-api/getting-started/getting-access) · [X OAuth with PKCE](https://docs.x.com/fundamentals/authentication/oauth-2-0/authorization-code)
 
 Use **Add another X account** to authorize each account separately. Switch to that account on X before approving the request. The active-account picker changes which account's profiles, settings and scans you see. Each exact dashboard address used to authorize accounts requires its own redirect entry in X. Existing connections work from the other supported dashboard addresses.
 
-Requested scopes are `tweet.read`, `users.read`, `follows.read` and `offline.access`. To request `follows.write`, enable write access in the X console and in **X app options**, then reconnect. The **X permissions** section distinguishes granted scopes from observed API results. Existing installations can still set OAuth defaults through environment variables.
+Requested scopes are `tweet.read`, `users.read`, `follows.read` and `offline.access`. To request `follows.write`, enable write access in the X console and in the wizard's **OAuth settings** step, then reconnect. After returning to **Integrations**, use **Set your limit and enable X reads** to authorize scans for the new account. The **X permissions** section distinguishes granted scopes from observed API results. Existing installations can still set OAuth defaults through environment variables.
 
 ## Published limits and listed rates
 

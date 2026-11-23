@@ -245,6 +245,17 @@ progress:indeterminate::-webkit-progress-bar { background: transparent; }
 .integration-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 310px), 1fr)); gap: 14px; align-items: start; }
 .integration-details > summary { cursor: pointer; color: var(--muted); }
 .integration-details[open] > summary { margin-bottom: 10px; }
+.setup-progress { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 0; padding: 0; list-style: none; }
+.setup-progress li { display: grid; justify-items: start; align-content: start; gap: 6px; padding: 7px; border-radius: 7px; color: var(--muted); font-size: 11px; }
+.setup-progress li[aria-current="step"] { background: #1d344d; color: #e8f3ff; }
+.setup-progress li > span { width: 22px; height: 22px; border: 1px solid var(--border); border-radius: 50%; display: grid; place-items: center; font-weight: 700; }
+.setup-progress li.complete > span { color: #7ee0bf; }
+.setup-choices { display: grid; gap: 8px; margin: 0; }
+.setup-choices > div { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 8px 10px; background: #111419; border: 1px solid var(--border); border-radius: 7px; }
+.setup-choices dd { margin: 0; font-weight: 680; }
+.setup-copy { display: grid; gap: 4px; min-width: 0; }
+.setup-copy textarea { resize: vertical; }
+.setup-navigation { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; border-top: 1px solid var(--border); padding-top: 12px; }
 .account-name { border-top: 1px solid var(--border); }
 .initial-password-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; }
 .initial-password-notice > p { flex: 1 1 175px; margin: 0; }

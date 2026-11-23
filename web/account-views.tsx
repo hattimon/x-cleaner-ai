@@ -10,6 +10,7 @@ import { Badge, Button, Dialog, Empty, ErrorBanner, Load, Panel, ProfileIdentity
 import type { Notify } from './ui.js';
 import { Header } from './dashboard.js';
 import { when } from './locale.js';
+import { XConnectionWizard, xIdentityCost } from './x-connection-wizard.js';
 
 export type Run = <T>(work: () => Promise<T>, message?: string) => Promise<T | undefined>;
 export type Navigate = (path: string) => void;
@@ -148,64 +149,12 @@ const keyPages = {
   anthropic: 'https://platform.claude.com/settings/keys',
   gemini: 'https://aistudio.google.com/app/apikey',
 };
-const identityCost = () => phrase('Po autoryzacji X może naliczyć koszt jednego odczytu profilu.', 'X may charge for one profile lookup after you approve access.');
 const chatErrors: Record<string, string> = {
   chat_no_scope: 'Brak przyznanej zgody na korzystanie z planu.',
   chat_reauthorize: 'Połącz ponownie konto ChatGPT.',
   chat_limit: 'Osiągnięto limit planu ChatGPT.',
   chat_plan_unavailable: 'Plan lub uprawnienia nie udostępniły operacji.',
 };
-function XClientDialog({ x, run, close }: { x: Integrations['x']; run: Run; close: () => void }) {
-  const [busy, setBusy] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const clientId = String(form.get('clientId')).trim();
-    const clientSecret = String(form.get('clientSecret')).trim();
-    const writeEnabled = form.has('writeEnabled');
-    const connect = (event.nativeEvent as SubmitEvent).submitter?.getAttribute('value') !== 'save';
-    setBusy(true);
-    const result = await run(async () => {
-      await api.saveXClient({ clientId, clientSecret: clientSecret || undefined, writeEnabled });
-      return connect ? api.startX() : { url: null };
-    });
-    if (result?.url) location.assign(result.url);
-    else if (result) close();
-    else setBusy(false);
-  };
-  return <Dialog title={phrase('Połącz aplikację X', 'Connect your X app')} onClose={close}>
-    <form className="form-stack" onSubmit={submit}>
-      <p>{phrase('W konsoli X utwórz aplikację i włącz uwierzytelnianie użytkowników OAuth 2.0. Jako typ wybierz Native App, aby użyć samego Client ID.', 'Create an app in the X console and enable OAuth 2.0 user authentication. Choose Native App to use just a Client ID.')}</p>
-      <a className="button button--secondary" href="https://console.x.com/" target="_blank" rel="noreferrer"><ArrowUpRight size={16} />{phrase('Otwórz konsolę X', 'Open X Developer Console')}</a>
-      <label>{tr("Adres przekierowania")}<input value={x.callback} readOnly onFocus={event => event.currentTarget.select()} /></label>
-      <small className="muted">{phrase('Wklej ten dokładny adres w polu Callback URI w konsoli X.', 'Paste this exact address into the Callback URI field in the X console.')}</small>
-      {navigator.clipboard && <Button tone="quiet" onClick={() => { void navigator.clipboard.writeText(x.callback).then(() => setCopied(true)).catch(() => {}); }}>
-        {copied ? phrase('Skopiowano', 'Copied') : phrase('Kopiuj adres przekierowania', 'Copy redirect URL')}
-      </Button>}
-      <label>Client ID<input name="clientId" defaultValue={x.clientId} autoComplete="off" spellCheck={false} maxLength={250} required /></label>
-      <details className="integration-details">
-        <summary>{phrase('Opcje aplikacji X', 'X app options')}</summary>
-        <div className="form-stack">
-          <label>Client Secret <small className="muted">{phrase('Tylko dla klienta poufnego', 'Confidential clients only')}</small>
-            <input name="clientSecret" type="password" autoComplete="off" maxLength={512} placeholder={x.hasSecret ? phrase('Zapisano sekret', 'Secret saved') : undefined} />
-          </label>
-          <label className="check"><input type="checkbox" name="writeEnabled" defaultChecked={x.writeEnabled} />
-            {phrase('Zezwól na pojedyncze unfollow i ponowne follow po potwierdzeniu.', 'Allow individual unfollow and follow actions after confirmation.')}
-          </label>
-          <small className="muted">{phrase('Włącz też uprawnienia zapisu dla aplikacji w konsoli X i połącz konto ponownie.', 'Enable write permissions for the app in the X console and reconnect the account.')}</small>
-        </div>
-      </details>
-      <small className="muted">{identityCost()}</small>
-      <div className="dialog-actions">
-        <Button onClick={close}>{tr("Anuluj")}</Button>
-        {x.configured && <Button type="submit" value="save" disabled={busy}>{tr("Zapisz ustawienia")}</Button>}
-        <Button tone="primary" type="submit" value="connect" disabled={busy}>{phrase('Zapisz i połącz z X', 'Save and connect to X')}</Button>
-      </div>
-    </form>
-  </Dialog>;
-}
-
 function ApiKeyDialog({ provider, stored, run, close }: { provider: ApiProvider; stored: boolean; run: Run; close: () => void }) {
   const [busy, setBusy] = useState(false);
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -261,7 +210,7 @@ export function IntegrationsView({ account, accounts, select, data, run, navigat
           else setConfigureX(true);
         }}>{linked.length ? phrase('Dodaj kolejne konto X', 'Add another X account') : tr("Połącz konto X")}</Button>
           <Button icon={<Archive size={17} />} onClick={openArchive}>{tr("Importuj archiwum")}</Button></div>
-        <small className="muted">{x.configured ? identityCost() : phrase('Przy pierwszym połączeniu panel poprosi o Client ID z konsoli X.', 'The first connection walks you through adding a Client ID from the X console.')}</small>
+        <small className="muted">{x.configured ? xIdentityCost() : phrase('Kreator poprowadzi Cię przez konsolę X i poda wartości do wklejenia.', 'The wizard guides you through the X console with values to copy and paste.')}</small>
         {linked.length > 0 && <label className="form-stack">{phrase('Aktywne konto X', 'Active X account')}
           <select value={account?.connected ? account.id : ''} onChange={event => { if (event.target.value) select(event.target.value); }}>
             {!account?.connected && <option value="">{phrase('Wybierz konto X', 'Choose an X account')}</option>}
@@ -269,6 +218,7 @@ export function IntegrationsView({ account, accounts, select, data, run, navigat
           </select>
         </label>}
         {linked.length > 0 && <small className="muted">{phrase('Aby dodać inne konto, przełącz konto na x.com przed udzieleniem zgody.', 'To add another account, switch accounts on x.com before approving access.')}</small>}
+        {account?.connected && !account.settings.liveReadsEnabled && <Button onClick={() => navigate('/ustawienia')}>{phrase('Ustaw limit i włącz odczyty X', 'Set your limit and enable X reads')}</Button>}
         {x.configured && <Button tone="quiet" icon={<KeyRound size={16} />} onClick={() => setConfigureX(true)}>{phrase('Ustawienia aplikacji X', 'X app settings')}</Button>}
         {account && <details className="integration-details">
           <summary>{phrase('Uprawnienia X', 'X permissions')}</summary>
@@ -327,7 +277,7 @@ export function IntegrationsView({ account, accounts, select, data, run, navigat
         </>}
       </div>
     </Panel>
-    {configureX && <XClientDialog x={x} run={run} close={() => setConfigureX(false)} />}
+    {configureX && <XConnectionWizard x={x} run={run} close={() => setConfigureX(false)} />}
     {keyProvider && <ApiKeyDialog provider={keyProvider} stored={data.storedApiKeys.includes(keyProvider)} run={run} close={() => setKeyProvider(undefined)} />}
   </>;
 }
