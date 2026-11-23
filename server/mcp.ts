@@ -50,7 +50,7 @@ export async function makeMcp(db: PrismaClient, scanner: Scanner, cleanup: Clean
     await audit(db, key.userId, key.accountId, 'mcp.call', 'Wywołano narzędzie MCP ' + operation + '.', json({ tool: operation }));
     return account;
   };
-  const server = new McpServer({ name: 'x-cleaner-ai', version: '0.1.0' });
+  const server = new McpServer({ name: 'x-cleaner-ai', version: '0.1.1' });
   server.registerTool('list_x_accounts', {
     description: 'Lista kont X objętych uprawnieniem klucza.',
     inputSchema: {}, outputSchema: { accounts: z.array(z.object({ accountId: uuid, xUserId: z.string(), mode })) }, annotations: readOnly,

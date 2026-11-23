@@ -1,8 +1,9 @@
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { standaloneOwner } from './dist/server/local-account.js';
 
 const directory = process.env.XC_STATE_DIR ?? '/var/lib/postgresql/data';
 const data = join(directory, 'postgres');
@@ -47,9 +48,12 @@ process.once('SIGINT', () => void shutdown(0));
 try {
   await mkdir(data, { recursive: true, mode: 0o700 });
   if (!await exists(secretFile)) {
-    await writeFile(secretFile, JSON.stringify({ pg: secret(24), key: secret(32) }), { flag: 'wx', mode: 0o600 });
+    const seed = secret(32);
+    await writeFile(secretFile, JSON.stringify({ pg: secret(24), key: secret(32), seed }), { flag: 'wx', mode: 0o600 });
+    const owner = standaloneOwner(seed);
+    console.log(JSON.stringify({ event: 'initial_credentials', service: 'x-cleaner-ai', login: owner.username, ...owner }));
   }
-  const { pg, key } = JSON.parse(await readFile(secretFile, 'utf8'));
+  const { pg, key, seed } = JSON.parse(await readFile(secretFile, 'utf8'));
   if (!/^[A-Za-z0-9_-]{32}$/.test(pg) || !/^[A-Za-z0-9_-]{43}$/.test(key)) throw new Error('Invalid persistent credential file');
 
   if (!await exists(join(data, 'PG_VERSION'))) {
@@ -76,8 +80,20 @@ try {
   };
   await run('node', ['node_modules/prisma/build/index.js', 'migrate', 'deploy'], { env });
   if (stopping) throw new Error('Interrupted');
-  required('node', ['dist/server/main.js'], { env });
+  required('node', ['dist/server/main.js'], { env: { ...env, XC_INITIAL_OWNER_SEED: seed } });
   required('nginx', ['-e', '/dev/stderr', '-g', 'daemon off;']);
+  if (seed) {
+    for (let attempt = 0; attempt < 60 && !stopping; attempt++) {
+      const ready = await fetch('http://127.0.0.1:3181/api/health', { signal: AbortSignal.timeout(500) }).then(r => r.ok, () => false);
+      if (ready) {
+        const partial = secretFile + '.new';
+        await writeFile(partial, JSON.stringify({ pg, key }), { mode: 0o600 });
+        await rename(partial, secretFile);
+        break;
+      }
+      await delay(250);
+    }
+  }
 } catch (failure) {
   if (!stopping) {
     console.error('X-Cleaner startup failed. Verify database state and volume permissions.');

@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import { hashPassword, opaque } from './security.js';
 import { audit, lock } from './db.js';
@@ -6,12 +6,19 @@ import { AppError } from './config.js';
 
 export const passwordLock = (id: string) => 'local-password:' + id;
 
-export async function ensureOwner(db: PrismaClient) {
+export function standaloneOwner(seed: string) {
+  const key = Buffer.from(seed, 'base64url');
+  const username = 'admin-' + createHmac('sha256', key).update('x-cleaner-owner-name').digest('hex').slice(0, 8);
+  const password = createHmac('sha256', key).update('x-cleaner-owner-password').digest('base64url').slice(0, 32);
+  return { username, password };
+}
+
+export async function ensureOwner(db: PrismaClient, provided?: ReturnType<typeof standaloneOwner>) {
   return db.$transaction(async tx => {
     await lock(tx, 'initialize-owner');
     if (await tx.localUser.findUnique({ where: { slot: true }, select: { id: true } })) return null;
-    const username = 'admin-' + randomBytes(4).toString('hex');
-    const password = opaque(24);
+    const username = provided?.username ?? 'admin-' + randomBytes(4).toString('hex');
+    const password = provided?.password ?? opaque(24);
     const owner = await tx.localUser.create({ data: { username, passwordHash: await hashPassword(password), initialPassword: true } });
     await audit(tx, owner.id, null, 'security.setup', 'Utworzono lokalne konto właściciela z hasłem startowym.');
     return { username, password };

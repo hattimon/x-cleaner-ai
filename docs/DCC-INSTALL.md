@@ -2,7 +2,7 @@
 
 [Instrukcja po polsku](#instalacja-w-dcc)
 
-Open the DCC App Store, refresh its catalog and search for **X-Cleaner AI** under **Analytics** or **AI → UI**. Select a Docker host on amd64 or 64-bit ARM. The preset uses the full `ghcr.io/hattimon/x-cleaner-ai:0.1.0` image and maps host port 3180 to container port 8080. It creates the `x-cleaner-ai_data` volume for PostgreSQL and the installation's encryption key. The container restarts with Docker unless deliberately stopped.
+Open the DCC App Store, refresh its catalog and search for **X-Cleaner AI** under **Analytics** or **AI → UI**. Select a Docker host on amd64 or 64-bit ARM. The preset uses the full `ghcr.io/hattimon/x-cleaner-ai:0.1.1` image and maps host port 3180 to container port 8080. It creates the `x-cleaner-ai_data` volume for PostgreSQL and the installation's encryption key. The container restarts with Docker unless deliberately stopped.
 
 Keep port 3180 free on the selected host. If another install uses it, stop that installation before adopting the same port or set `PUBLIC_ORIGIN` and `SIWC_CALLBACK_ORIGIN` to match a different browser-facing port. To connect to a private Raspberry Pi, use the [SSH or private HTTPS setup](RASPBERRY-PI.md).
 
