@@ -51,7 +51,8 @@ try {
     const seed = secret(32);
     await writeFile(secretFile, JSON.stringify({ pg: secret(24), key: secret(32), seed }), { flag: 'wx', mode: 0o600 });
     const owner = standaloneOwner(seed);
-    console.log(JSON.stringify({ event: 'initial_credentials', service: 'x-cleaner-ai', login: owner.username, ...owner }));
+    // DCC Web's log viewer uses the generic key=value detector.
+    console.log(`initial_credentials service=x-cleaner-ai login=${owner.username} password=${owner.password}`);
   }
   const { pg, key, seed } = JSON.parse(await readFile(secretFile, 'utf8'));
   if (!/^[A-Za-z0-9_-]{32}$/.test(pg) || !/^[A-Za-z0-9_-]{43}$/.test(key)) throw new Error('Invalid persistent credential file');
