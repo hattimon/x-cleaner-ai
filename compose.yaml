@@ -1,0 +1,82 @@
+name: x-cleaner-ai
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: xcleaner
+      POSTGRES_USER: xcleaner
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run the initialization script first}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U xcleaner -d xcleaner"]
+      interval: 5s
+      timeout: 4s
+      retries: 15
+    restart: unless-stopped
+    logging: *logging
+
+  backend:
+    build:
+      context: .
+      target: backend
+    environment:
+      DATABASE_URL: postgresql://xcleaner:${POSTGRES_PASSWORD}@db:5432/xcleaner?connection_limit=8
+      TOKEN_KEY: ${TOKEN_KEY:?Run the initialization script first}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:3180}
+      X_CLIENT_ID: ${X_CLIENT_ID:-}
+      X_CLIENT_SECRET: ${X_CLIENT_SECRET:-}
+      X_ENABLE_WRITE: ${X_ENABLE_WRITE:-false}
+      ENABLE_CHATGPT_PLAN: ${ENABLE_CHATGPT_PLAN:-false}
+      SIWC_CALLBACK_ORIGIN: ${SIWC_CALLBACK_ORIGIN:-http://127.0.0.1:3180}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      MCP_ENABLED: ${MCP_ENABLED:-false}
+    command: ["sh", "-c", "./node_modules/.bin/prisma migrate deploy && exec node dist/server/main.js"]
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3181/api/health').then(r=>{process.exitCode=r.ok?0:1}).catch(()=>{process.exitCode=1})"]
+      interval: 8s
+      timeout: 4s
+      retries: 12
+      start_period: 20s
+    init: true
+    stop_grace_period: 60s
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    logging: *logging
+
+  frontend:
+    build:
+      context: .
+      target: frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-3180}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    init: true
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev
+    security_opt: ["no-new-privileges:true"]
+    logging: *logging
+
+volumes:
+  postgres:

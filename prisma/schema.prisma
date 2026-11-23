@@ -1,0 +1,289 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AccountMode {
+  LIVE
+  ARCHIVE
+}
+
+enum Decision {
+  KEEP
+  REVIEW
+  UNFOLLOW_CANDIDATE
+  PROTECTED
+  UNKNOWN
+}
+
+enum Preference {
+  KEEP
+  REVIEW
+  PROTECT
+  EXCLUDE
+}
+
+enum DataStatus {
+  scanned
+  partial
+  unavailable
+  rate_limited
+  stale
+  failed
+}
+
+enum JobState {
+  QUEUED
+  RUNNING
+  WAITING
+  PAUSED
+  CANCELLED
+  COMPLETED
+  FAILED
+}
+
+enum ScanPhase {
+  FOLLOWING
+  PROFILES
+}
+
+enum OperationState {
+  PREPARED
+  IN_PROGRESS
+  SUCCEEDED
+  FAILED
+  UNCERTAIN
+  SKIPPED
+}
+
+enum CleanupDirection {
+  UNFOLLOW
+  FOLLOW
+}
+
+model LocalUser {
+  id             String          @id @default(uuid())
+  slot           Boolean         @unique @default(true)
+  username       String          @unique
+  passwordHash   String
+  initialPassword Boolean        @default(false)
+  createdAt      DateTime        @default(now())
+  sessions       Session[]
+  accounts       XAccount[]
+  oauthAttempts  OAuthAttempt[]
+  chatConnection ChatConnection?
+  audit          AuditEvent[]
+  mcpKeys        McpKey[]
+}
+
+model Session {
+  id         String    @id
+  userId     String
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
+  user       LocalUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([expiresAt])
+}
+
+model HostIdentity {
+  key    String @id
+  hostId String @unique
+}
+
+model OAuthAttempt {
+  stateHash   String    @id
+  provider    String
+  userId      String
+  sessionId   String
+  encrypted   String
+  receiptHash String?   @unique
+  result      String?
+  expiresAt   DateTime
+  user        LocalUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([expiresAt])
+}
+
+model ChatConnection {
+  userId        String    @id
+  subject       String
+  clientId      String
+  displayName   String?
+  scopes        String[]
+  encrypted     String?
+  expiresAt     DateTime
+  errorCode     String?
+  lastUsage     Json?
+  updatedAt     DateTime  @updatedAt
+  user          LocalUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model XAccount {
+  id              String             @id @default(uuid())
+  userId          String
+  mode            AccountMode
+  xId             String
+  username        String
+  name            String
+  avatarUrl       String?
+  verified        Boolean            @default(false)
+  followingCount  Int?
+  scopes          String[]
+  encrypted       String?
+  expiresAt       DateTime?
+  connectionError String?
+  capabilities    Json               @default("{}")
+  settings        Json               @default("{}")
+  nextScanAt      DateTime?
+  createdAt       DateTime           @default(now())
+  user            LocalUser          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profiles        Profile[]
+  scans           ScanJob[]
+  batches         CleanupBatch[]
+  audit           AuditEvent[]
+  usage           UsageDay[]
+  mcpKeys         McpKey[]
+  @@unique([userId, mode, xId])
+  @@index([userId, mode])
+  @@index([nextScanAt])
+}
+
+model Profile {
+  id             String        @id @default(uuid())
+  accountId      String
+  xId            String
+  username       String
+  name           String
+  bio            String        @default("")
+  avatarUrl      String?
+  website        String?
+  openedAt       DateTime?
+  followers      Int?
+  follows        Int?
+  verified       Boolean       @default(false)
+  private        Boolean       @default(false)
+  following      Boolean       @default(true)
+  lastActivity   DateTime?
+  lastPostAt     DateTime?
+  lastReplyAt    DateTime?
+  lastCheckedAt  DateTime?
+  sampleLimit    Int           @default(0)
+  posts          Json          @default("[]")
+  status         DataStatus    @default(unavailable)
+  statusReason   String?
+  decision       Decision      @default(UNKNOWN)
+  assessment     Json?
+  activity       String        @default("unknown")
+  spamScore      Int           @default(0)
+  confidence     Int           @default(0)
+  preference     Preference?
+  account        XAccount      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  scanItems      ScanItem[]
+  operations     CleanupOperation[]
+  @@unique([accountId, xId])
+  @@index([accountId, following, decision, confidence])
+  @@index([accountId, following, lastActivity])
+}
+
+model ScanJob {
+  id            String      @id @default(uuid())
+  accountId     String
+  reason        String
+  state         JobState    @default(QUEUED)
+  phase         ScanPhase   @default(FOLLOWING)
+  cursor        String?
+  seen          Int         @default(0)
+  processed     Int         @default(0)
+  pages         Int         @default(0)
+  attempts      Int         @default(0)
+  forceRefresh  Boolean     @default(false)
+  availableAt   DateTime    @default(now())
+  leaseUntil    DateTime?
+  leaseId       String?
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  createdAt     DateTime    @default(now())
+  message       String?
+  summary       Json?
+  account       XAccount    @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  items         ScanItem[]
+  @@index([state, availableAt])
+  @@index([accountId, createdAt])
+}
+
+model ScanItem {
+  scanId     String
+  profileId  String
+  analyzedAt DateTime?
+  evaluation Json?
+  scan       ScanJob  @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  profile    Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  @@id([scanId, profileId])
+  @@index([scanId, analyzedAt])
+  @@index([profileId, analyzedAt])
+}
+
+model CleanupBatch {
+  id         String            @id @default(uuid())
+  accountId  String
+  direction  CleanupDirection
+  expiresAt  DateTime
+  createdAt  DateTime          @default(now())
+  account    XAccount          @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  operations CleanupOperation[]
+  @@index([accountId, createdAt])
+}
+
+model CleanupOperation {
+  id          String         @id @default(uuid())
+  batchId     String
+  profileId   String
+  state       OperationState @default(PREPARED)
+  result      Json?
+  updatedAt   DateTime       @updatedAt
+  batch       CleanupBatch   @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  profile     Profile        @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  @@unique([batchId, profileId])
+  @@index([profileId, state])
+  @@index([state, updatedAt])
+}
+
+model UsageDay {
+  accountId   String
+  day         String
+  xRequests   Int      @default(0)
+  xMilliUsd   Int      @default(0)
+  aiRequests  Int      @default(0)
+  account     XAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  @@id([accountId, day])
+}
+
+model McpKey {
+  id         String    @id @default(uuid())
+  tokenHash  String    @unique
+  userId     String
+  accountId  String
+  canPrepare Boolean   @default(false)
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  user       LocalUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account    XAccount  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  @@index([userId, accountId])
+}
+
+model AuditEvent {
+  id        String    @id @default(uuid())
+  userId    String
+  accountId String?
+  kind      String
+  message   String
+  data      Json?
+  createdAt DateTime  @default(now())
+  user      LocalUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account   XAccount? @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  @@index([userId, accountId, createdAt])
+}

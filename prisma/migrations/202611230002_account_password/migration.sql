@@ -1,0 +1,1 @@
+ALTER TABLE "LocalUser" ADD COLUMN "initialPassword" BOOLEAN NOT NULL DEFAULT false;
