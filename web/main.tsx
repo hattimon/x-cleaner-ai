@@ -1,4 +1,4 @@
-import { tr, useLanguage } from './i18n.js';
+import { phrase, tr, useLanguage } from './i18n.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -70,7 +70,9 @@ function Login({ message, onSession }: { message?: string; onSession: (session: 
   </main>;
 }
 
-function Workspace({ username, initialPassword, logout, onPasswordChanged }: { username: string; initialPassword: boolean; logout: () => Promise<void>; onPasswordChanged: () => void }) {
+function Workspace({ username, initialPassword, logout, onPasswordChanged, onUsernameChanged }: {
+  username: string; initialPassword: boolean; logout: () => Promise<void>; onPasswordChanged: () => void; onUsernameChanged: (username: string) => void;
+}) {
   const qc = useQueryClient();
   const [path, setPath] = useState(location.pathname);
   const [mobileMenu, setMobileMenu] = useState(false);
@@ -121,6 +123,7 @@ function Workspace({ username, initialPassword, logout, onPasswordChanged }: { u
     const params = new URLSearchParams(location.search);
     const receipt = params.get('complete');
     const event = params.get('event');
+    const linkedId = params.get('account');
     if (!receipt && !event) return;
     consumed.current = true;
     history.replaceState(null, '', path);
@@ -136,8 +139,8 @@ function Workspace({ username, initialPassword, logout, onPasswordChanged }: { u
       notify(events[event] ?? tr("Połączenie X nie zostało ukończone."), event !== 'x_connected');
       if (event === 'x_connected') {
         void api.accounts().then(items => {
-          const latest = [...items].reverse().find(item => item.connected);
-          if (latest) select(latest.id);
+          const linked = linkedId ? items.find(item => item.id === linkedId && item.connected) : [...items].reverse().find(item => item.connected);
+          if (linked) select(linked.id);
           qc.setQueryData(['accounts'], items);
         }).catch(() => {});
       }
@@ -173,9 +176,12 @@ function Workspace({ username, initialPassword, logout, onPasswordChanged }: { u
   let view;
   if (path === '/konta') view = <AccountsView accounts={visibleAccounts} current={account} onSelect={select} openArchive={setupAction} navigate={navigate} run={run} />;
   else if (path === '/integracje') view = integrations.error ? <ErrorBanner error={integrations.error} retry={() => void integrations.refetch()} /> : integrations.data ?
-    <IntegrationsView key={id ?? 'none'} account={account} data={integrations.data} navigate={navigate} run={run} openArchive={setupAction} /> : <IntegrationsLoading />;
+    <IntegrationsView key={id ?? 'none'} account={account} accounts={visibleAccounts} select={select} data={integrations.data} navigate={navigate} run={run} openArchive={setupAction} /> : <IntegrationsLoading />;
   else if (path === '/ustawienia') {
-    const security = <PasswordPanel initialized={initialPassword} changed={onPasswordChanged} />;
+    const security = <PasswordPanel username={username} initialized={initialPassword} changed={onPasswordChanged} renamed={name => {
+      onUsernameChanged(name);
+      notify(phrase('Zmieniono nazwę użytkownika.', 'Username changed.'));
+    }} />;
     view = account ? <SettingsView key={id} account={account} integrations={integrations.data} run={run} notify={notify} security={security} />
       : <><Header title={tr("Ustawienia")} text={tr("Zarządzaj dostępem do lokalnego panelu.")} />{security}</>;
   }
@@ -228,7 +234,14 @@ function Workspace({ username, initialPassword, logout, onPasswordChanged }: { u
         <div className="top-right"><Badge color={account?.mode === 'LIVE' ? 'blue' : account ? 'purple' : 'neutral'}>{account?.mode === 'LIVE' ? 'LIVE' : account ? tr("Archiwum X") : tr("Lokalnie")}</Badge><LanguageSwitch /></div>
       </header>
       <div className="main-grid">
-        <main id="main" className="main-content">{view}</main>
+        <main id="main" className="main-content">
+          {initialPassword && path !== '/ustawienia' && <aside className="initial-password-notice">
+            <ShieldCheck size={18} />
+            <p>{phrase('Zmień hasło startowe po pierwszym logowaniu.', 'Change your initial password after signing in.')}</p>
+            <Button onClick={() => navigate('/ustawienia')}>{tr("Zmień hasło")}</Button>
+          </aside>}
+          {view}
+        </main>
         <RightRail account={account} accounts={visibleAccounts} data={data.data} integrations={integrations.data} onSelect={select} navigate={navigate} />
       </div>
     </div>
@@ -261,7 +274,9 @@ function App() {
   if (session.error) return <main className="login-screen"><Panel title="X-Cleaner AI"><ErrorBanner error={session.error} retry={() => void session.refetch()} /></Panel></main>;
   if (!session.data?.user) return <Login message={message} onSession={login} />;
   return <Workspace username={session.data.user.username} initialPassword={session.data.user.initialPassword} logout={logout}
-    onPasswordChanged={() => { setMessage(tr("Hasło zostało zmienione. Zaloguj się nowym hasłem.")); clear(); }} />;
+    onPasswordChanged={() => { setMessage(tr("Hasło zostało zmienione. Zaloguj się nowym hasłem.")); clear(); }}
+    onUsernameChanged={username => qc.setQueryData<Session>(['session'], current =>
+      current?.user ? { ...current, user: { ...current.user, username } } : current)} />;
 }
 
 createRoot(document.getElementById('root')!).render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);

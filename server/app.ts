@@ -12,13 +12,14 @@ import { Auth } from './auth.js';
 import { XAccounts, accountView, exportConfig, mcpTokenHash } from './x-accounts.js';
 import { xAuthorization } from './x-provider.js';
 import { callbackQuery, OAuthAttempts } from './oauth.js';
-import { ChatGPTPlanProvider, chatAuthorization } from './ai-providers.js';
+import { ChatGPTPlanProvider, chatAuthorization, chatCallback, chatRedirect } from './ai-providers.js';
 import { Scanner } from './scanner.js';
 import { nextScheduled } from './scheduler.js';
 import { Cleanup, confirmSchema, idSchema, prepareSchema } from './cleanup.js';
 import { auditHistory, csvReport, dashboard, detailProfile, listProfiles, profileWhere, report, setPreference } from './profiles.js';
 import { askAssistant } from './assistant.js';
 import { AiProviders } from './external-ai.js';
+import { apiKeySchema, IntegrationCredentials, xClientSchema } from './integration-credentials.js';
 
 const accountParams = z.object({ accountId: idSchema });
 const profileParams = accountParams.extend({ profileId: idSchema });
@@ -26,6 +27,7 @@ const scanParams = accountParams.extend({ scanId: idSchema });
 const batchParams = accountParams.extend({ batchId: idSchema });
 const receiptSchema = z.object({ receipt: z.string().regex(/^[A-Za-z0-9_-]{43}$/) });
 const prefSchema = z.enum(preferences).nullable();
+const apiProviderParams = z.object({ provider: z.enum(apiProviders) });
 
 export async function makeApp(db: PrismaClient, config: Config, fetcher = fetch, logger = true) {
   const app = Fastify({
@@ -62,10 +64,11 @@ export async function makeApp(db: PrismaClient, config: Config, fetcher = fetch,
   const attempts = new OAuthAttempts(db, vault);
   const accounts = new XAccounts(db, config, vault, fetcher);
   const chat = new ChatGPTPlanProvider(db, config, vault, fetcher);
-  const ai = new AiProviders(db, config, chat, fetcher);
+  const credentials = new IntegrationCredentials(db, config, vault);
+  const ai = new AiProviders(db, credentials, chat, fetcher);
   const scanner = new Scanner(db, account => accounts.provider(account), account => accounts.assertScan(account), ai,
     code => app.log.warn({ code }, 'scan worker'));
-  const cleanup = new Cleanup(db, config.X_ENABLE_WRITE, account => accounts.provider(account));
+  const cleanup = new Cleanup(db, async (userId, tx) => (await credentials.x(userId, undefined, tx)).X_ENABLE_WRITE, account => accounts.provider(account));
   auth.routes(app);
 
   app.get('/api/accounts', async req => {
@@ -83,36 +86,48 @@ export async function makeApp(db: PrismaClient, config: Config, fetcher = fetch,
   });
   app.get('/api/integrations', async req => {
     const { userId } = await auth.require(req);
+    const panel = auth.panel(req);
     const { accountId } = accountParams.partial().parse(req.query);
-    const [account, chatStatus, keys] = await Promise.all([
+    const [account, chatStatus, keys, xClient, apiStatus] = await Promise.all([
       accountId ? ownedAccount(db, userId, accountId) : Promise.resolve(undefined),
-      chat.status(userId),
+      chat.status(userId, panel),
       accountId && config.MCP_ENABLED ? db.mcpKey.findMany({
         where: { userId, accountId, revokedAt: null, expiresAt: { gt: new Date() } },
         select: { id: true, canPrepare: true, expiresAt: true },
       }) : Promise.resolve([]),
+      credentials.x(userId, panel),
+      credentials.apiStatus(userId),
     ]);
     return {
-      x: accounts.diagnostics(account), chat: chatStatus, apiProviders: ai.statuses(),
+      x: accounts.diagnostics(xClient, account), chat: chatStatus,
+      apiProviders: apiStatus.configured, storedApiKeys: apiStatus.stored,
       mcp: { enabled: config.MCP_ENABLED, keys: keys.map(key => ({ ...key, expiresAt: key.expiresAt.toISOString() })) },
     };
+  });
+  app.put('/api/integrations/x/client', async req => {
+    const { userId } = await auth.require(req);
+    await credentials.saveX(userId, xClientSchema.parse(req.body));
+    return { ok: true };
   });
   app.post('/api/integrations/x/start', async req => {
     const identity = await auth.require(req);
     z.object({ acceptCosts: z.literal(true) }).parse(req.body);
-    if (!config.X_CLIENT_ID) throw new AppError(409, 'x_not_configured', 'Ustaw X_CLIENT_ID w pliku .env i odtwórz usługę backend.');
-    const pending = await attempts.begin(identity, 'x');
-    return { url: xAuthorization(config, pending.state, pending.challenge) };
+    const xClient = await credentials.x(identity.userId, auth.panel(req));
+    if (!xClient.X_CLIENT_ID) throw new AppError(409, 'x_not_configured', 'Dodaj identyfikator aplikacji X na ekranie Integracje.');
+    const pending = await attempts.begin(identity, 'x', { xClient });
+    return { url: xAuthorization(xClient, pending.state, pending.challenge) };
   });
   app.get('/api/integrations/x/callback', async (req, reply) => {
-    const destination = config.PUBLIC_ORIGIN + '/integracje?event=';
+    const panel = auth.panel(req);
+    const destination = panel + '/integracje?event=';
     try {
       const identity = await auth.require(req);
       const query = callbackQuery.parse(req.query);
       const { pending } = await attempts.consume(identity, 'x', query.state);
       if (query.error || !query.code) return reply.redirect(destination + 'x_cancelled', 303);
-      await accounts.connect(identity.userId, query.code, pending.verifier);
-      return reply.redirect(destination + 'x_connected', 303);
+      if (pending.xClient && pending.xClient.PUBLIC_ORIGIN !== panel) throw new AppError(400, 'oauth_state', 'Wróć na adres panelu użyty do połączenia z X.');
+      const connected = await accounts.connect(identity.userId, query.code, pending.verifier, pending.xClient);
+      return reply.redirect(destination + 'x_connected&account=' + encodeURIComponent(connected.id), 303);
     } catch (error) {
       const code = error instanceof AppError && ['x_credits', 'x_forbidden', 'x_unauthorized', 'oauth_state'].includes(error.code) ? error.code : 'x_connect_error';
       return reply.redirect(destination + code, 303);
@@ -122,19 +137,21 @@ export async function makeApp(db: PrismaClient, config: Config, fetcher = fetch,
   app.post('/api/integrations/chatgpt/start', async req => {
     const identity = await auth.require(req);
     chat.requireEnabled();
-    if (!chat.callbackAvailable) throw new AppError(409, 'chat_callback', 'Otwórz panel przez lokalny adres loopback zgodny ze skonfigurowanym callbackiem.');
+    const redirect = chatRedirect(auth.panel(req));
+    if (!redirect) throw new AppError(409, 'chat_callback', 'Aby połączyć ChatGPT, otwórz panel na localhost.');
     const [row, host] = await Promise.all([
       db.chatConnection.findUnique({ where: { userId: identity.userId }, select: { clientId: true, subject: true } }),
       chat.hostId(),
     ]);
-    const pending = await attempts.begin(identity, 'chatgpt', row ?? undefined);
+    const pending = await attempts.begin(identity, 'chatgpt', { ...row, chat: redirect });
     return { url: chatAuthorization(config, host, pending) };
   });
   app.get('/api/integrations/chatgpt/callback', async (req, reply) => {
     chat.requireEnabled();
-    if (req.headers.host !== new URL(config.SIWC_CALLBACK_ORIGIN).host) throw new AppError(400, 'chat_loopback', 'Callback oczekuje adresu 127.0.0.1 skonfigurowanego na tym hoście.');
-    const receipt = await attempts.receiveChat(callbackQuery.parse(req.query));
-    return reply.redirect(config.PUBLIC_ORIGIN + '/integracje?complete=' + receipt, 303);
+    const { receipt, panel } = await attempts.receiveChat(callbackQuery.parse(req.query), req.headers.host, {
+      panel: config.PUBLIC_ORIGIN, callback: chatCallback(config),
+    });
+    return reply.redirect(panel + '/integracje?complete=' + receipt, 303);
   });
   app.post('/api/integrations/chatgpt/finish', async req => {
     const identity = await auth.require(req);
@@ -142,13 +159,25 @@ export async function makeApp(db: PrismaClient, config: Config, fetcher = fetch,
     const { pending, result } = await attempts.consume(identity, 'chatgpt', receipt);
     if (!result) throw new AppError(400, 'chat_callback', 'Brak odpowiedzi ChatGPT.');
     await chat.connect(identity.userId, result, pending);
-    return chat.status(identity.userId);
+    return chat.status(identity.userId, auth.panel(req));
   });
   app.post('/api/integrations/chatgpt/disconnect', async req => {
     const { userId } = await auth.require(req);
     return chat.disconnect(userId, z.object({ forget: z.boolean().default(false) }).parse(req.body ?? {}).forget);
   });
   app.get('/api/integrations/chatgpt/models', async req => chat.listModels((await auth.require(req)).userId));
+  app.put('/api/integrations/keys/:provider', async req => {
+    const { userId } = await auth.require(req);
+    const { provider } = apiProviderParams.parse(req.params);
+    const { key } = apiKeySchema.parse(req.body);
+    await credentials.saveApiKey(userId, provider, key);
+    return { ok: true };
+  });
+  app.delete('/api/integrations/keys/:provider', async req => {
+    const { userId } = await auth.require(req);
+    await credentials.removeApiKey(userId, apiProviderParams.parse(req.params).provider);
+    return { ok: true };
+  });
 
   app.post('/api/accounts/:accountId/mcp', async req => {
     const { userId } = await auth.require(req);
@@ -275,7 +304,7 @@ export async function makeApp(db: PrismaClient, config: Config, fetcher = fetch,
       if (!models.some(model => model.id === next.aiModel)) throw new AppError(400, 'chat_model', 'Wybierz dostępny model z katalogu połączonego konta.');
     }
     const external = apiProviders.find(provider => provider === next.aiProvider);
-    if (external && (!next.aiPaidConsent || !ai.statuses()[external] || !/^[a-zA-Z0-9._:-]{1,100}$/.test(next.aiModel))) {
+    if (external && (!next.aiPaidConsent || !/^[a-zA-Z0-9._:-]{1,100}$/.test(next.aiModel) || !await credentials.apiKey(userId, external))) {
       throw new AppError(400, 'ai_not_enabled', 'Skonfiguruj klucz API, podaj model i zaakceptuj rozliczane wywołania.');
     }
     if (next.scheduleEnabled && (before.mode !== 'LIVE' || !next.liveReadsEnabled)) {

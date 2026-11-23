@@ -25,6 +25,8 @@ const tokensSchema = z.object({
   token_type: z.string().refine(v => v.toLowerCase() === 'bearer'), expires_in: z.number().int().positive(), scope: z.string().optional(),
 });
 export type OAuthTokens = z.infer<typeof tokensSchema>;
+export type XClientCredentials = Pick<Config, 'X_CLIENT_ID' | 'X_CLIENT_SECRET'>;
+export type XOAuthConfig = XClientCredentials & Pick<Config, 'PUBLIC_ORIGIN' | 'X_ENABLE_WRITE'>;
 export type XProfile = {
   xId: string; username: string; name: string; bio: string; website: string | null;
   avatarUrl: string | null; openedAt: Date | null; followers: number | null; follows: number | null;
@@ -41,9 +43,9 @@ export interface XProvider {
 export function xScopes(write: boolean) {
   return ['tweet.read', 'users.read', 'follows.read', 'offline.access', ...(write ? ['follows.write'] : [])];
 }
-export const xCallback = (config: Config) => config.PUBLIC_ORIGIN + '/api/integrations/x/callback';
+export const xCallback = (config: Pick<Config, 'PUBLIC_ORIGIN'>) => config.PUBLIC_ORIGIN + '/api/integrations/x/callback';
 
-export function xAuthorization(config: Config, state: string, challenge: string) {
+export function xAuthorization(config: XOAuthConfig, state: string, challenge: string) {
   const url = new URL(authOrigin);
   url.search = new URLSearchParams({
     response_type: 'code', client_id: config.X_CLIENT_ID, redirect_uri: xCallback(config),
@@ -83,7 +85,7 @@ async function fetchX(fetcher: typeof fetch, path: string, init: RequestInit) {
   return value;
 }
 
-async function exchange(config: Config, values: Record<string, string>, fetcher: typeof fetch) {
+async function exchange(config: XClientCredentials, values: Record<string, string>, fetcher: typeof fetch) {
   const headers: Record<string, string> = { 'Content-Type': 'application/x-www-form-urlencoded' };
   if (config.X_CLIENT_SECRET) headers.Authorization = 'Basic ' + Buffer.from(config.X_CLIENT_ID + ':' + config.X_CLIENT_SECRET).toString('base64');
   const data = await fetchX(fetcher, '/oauth2/token', {
@@ -94,13 +96,13 @@ async function exchange(config: Config, values: Record<string, string>, fetcher:
   return tokens.data;
 }
 
-export const exchangeXCode = (config: Config, code: string, verifier: string, fetcher = fetch) => exchange(config, {
+export const exchangeXCode = (config: XOAuthConfig, code: string, verifier: string, fetcher = fetch) => exchange(config, {
   grant_type: 'authorization_code', code, code_verifier: verifier, redirect_uri: xCallback(config),
 }, fetcher);
-export const refreshX = (config: Config, token: string, fetcher = fetch) =>
+export const refreshX = (config: XClientCredentials, token: string, fetcher = fetch) =>
   exchange(config, { grant_type: 'refresh_token', refresh_token: token }, fetcher);
 
-export async function revokeX(config: Config, token: string, type: 'access_token' | 'refresh_token', fetcher = fetch) {
+export async function revokeX(config: XClientCredentials, token: string, type: 'access_token' | 'refresh_token', fetcher = fetch) {
   const headers: Record<string, string> = { 'Content-Type': 'application/x-www-form-urlencoded' };
   if (config.X_CLIENT_SECRET) headers.Authorization = 'Basic ' + Buffer.from(config.X_CLIENT_ID + ':' + config.X_CLIENT_SECRET).toString('base64');
   await fetchX(fetcher, '/oauth2/revoke', {

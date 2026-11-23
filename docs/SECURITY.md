@@ -1,6 +1,6 @@
 # Security and recovery
 
-The app uses an owner account, scrypt password hashes, a seven-day HTTP-only session cookie, origin and CSRF checks, request throttling and account ownership checks. HTTPS deployments use Secure cookies. Password changes and terminal resets end all local sessions. Docker exposes only the frontend port to loopback by default. Nginx and Node run as non-root users. The browser sees integration state and limited evidence.
+The app uses an owner account, scrypt password hashes, a seven-day HTTP-only session cookie, origin and CSRF checks, request throttling and account ownership checks. HTTPS deployments use Secure cookies. Password changes and terminal resets end all local sessions. HTTP sign-in accepts same-origin requests on loopback and private IP addresses. Keep the exposed frontend port on a trusted local network or bind it to loopback. Nginx and Node run as non-root users. The browser sees integration state and limited evidence.
 
 The initial owner password is intentionally emitted once in a structured installation log at the user's request. Treat Docker log access as credential access until the password is changed. API tokens, OAuth grants and refresh tokens stay out of HTTP responses and request logs. OAuth credentials are encrypted at rest with AES-256-GCM. Preserve the `TOKEN_KEY` alongside encrypted backup material, using separate protected storage where possible.
 

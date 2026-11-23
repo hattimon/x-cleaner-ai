@@ -19,21 +19,31 @@ const url = process.env.TEST_DATABASE_URL ?? '';
 if (!/^postgresql:\/\/xcleaner:.+@127\.0\.0\.1:55432\/xcleaner\?schema=xc_integration_[a-f0-9]+$/.test(url)) throw new Error('Wymagana izolowana baza testowa.');
 const db = new PrismaClient({ datasourceUrl: url });
 const origin = 'http://localhost:3182';
+const localHeaders = { origin, host: new URL(origin).host };
+const lanOrigin = 'http://192.168.50.2:3182';
+const lanHeaders = { origin: lanOrigin, host: new URL(lanOrigin).host };
 const cfg = readConfig({
   DATABASE_URL: url, TOKEN_KEY: opaque(), PUBLIC_ORIGIN: origin,
   X_CLIENT_ID: 'unit-test-client', X_ENABLE_WRITE: 'true', ENABLE_CHATGPT_PLAN: 'true',
   MCP_ENABLED: 'true', SIWC_CALLBACK_ORIGIN: 'http://127.0.0.1:3182',
 });
 const xToken = 'internal-x-access-token-for-fixture';
+const secondXToken = 'second-x-access-token-for-fixture';
 const refreshToken = 'internal-x-refresh-token-fixture';
-const fetcher = vi.fn<typeof fetch>().mockImplementation(async input => {
+const fetcher = vi.fn<typeof fetch>().mockImplementation(async (input, options) => {
   const target = new URL(String(input));
+  const token = new Headers(options?.headers).get('Authorization');
   if (target.pathname === '/2/oauth2/token') return Response.json({
-    access_token: xToken, refresh_token: refreshToken, expires_in: 7200, token_type: 'bearer',
+    access_token: new URLSearchParams(String(options?.body)).get('code') === 'second-account' ? secondXToken : xToken,
+    refresh_token: refreshToken, expires_in: 7200, token_type: 'bearer',
     scope: 'tweet.read users.read follows.read follows.write offline.access',
   });
   if (target.pathname === '/2/users/me') return Response.json({
-    data: { id: '393929', name: 'Konto LIVE testowe', username: 'live_test', public_metrics: { following_count: 6, followers_count: 9 } },
+    data: token === 'Bearer ' + secondXToken ? { id: '393930', name: 'Drugie konto testowe', username: 'second_live_test' }
+      : { id: '393929', name: 'Konto LIVE testowe', username: 'live_test', public_metrics: { following_count: 6, followers_count: 9 } },
+  });
+  if (target.href === 'https://api.openai.com/v1/responses') return Response.json({
+    output: [{ content: [{ text: JSON.stringify({ answer: 'Testing stored access.', profileIds: [] }) }] }],
   });
   throw new Error('Unexpected test request: ' + target.pathname);
 });
@@ -58,32 +68,41 @@ describe.sequential('lokalny backend, integracje i uprawnienia', () => {
     const [first, second] = await Promise.all([ensureOwner(db), ensureOwner(db)]);
     expect([first, second].filter(Boolean)).toHaveLength(1);
     const loginBody = (first ?? second)!;
-    expect(loginBody.username).toMatch(/^admin-[a-f0-9]{8}$/);
+    expect(loginBody.username).toBe('admin');
     expect(loginBody.password.length).toBeGreaterThan(24);
-    expect((await app.inject({ method: 'POST', url: '/api/session/login', headers: { origin: 'https://illegal.test' }, payload: loginBody })).statusCode).toBe(403);
-    const initial = await app.inject({ method: 'POST', url: '/api/session/login', headers: { origin }, payload: loginBody });
+    expect((await app.inject({ method: 'POST', url: '/api/session/login', headers: { ...localHeaders, origin: 'https://illegal.test' }, payload: loginBody })).statusCode).toBe(403);
+    const initial = await app.inject({ method: 'POST', url: '/api/session/login', headers: localHeaders, payload: loginBody });
     expect(initial.statusCode).toBe(200);
     expect(initial.json().user.initialPassword).toBe(true);
     const cookie = initial.cookies[0];
     expect(cookie.httpOnly).toBe(true);
     expect(cookie.sameSite).toBe('Lax');
     id = initial.json().user.id;
-    headers = { cookie: cookie.name + '=' + cookie.value, origin, 'x-csrf-token': initial.json().csrf };
-    expect((await app.inject({ method: 'POST', url: '/api/accounts/archive', headers: { cookie: headers.cookie, origin }, payload: archiveFiles() })).statusCode).toBe(403);
+    headers = { ...localHeaders, cookie: cookie.name + '=' + cookie.value, 'x-csrf-token': initial.json().csrf };
+    expect((await app.inject({ method: 'POST', url: '/api/accounts/archive', headers: { ...localHeaders, cookie: headers.cookie }, payload: archiveFiles() })).statusCode).toBe(403);
+    const renamed = await app.inject({ method: 'POST', url: '/api/session/username', headers, payload: { username: 'my-local-owner', currentPassword: loginBody.password } });
+    expect(renamed.json()).toEqual({ username: 'my-local-owner' });
+    expect((await app.inject({ url: '/api/session', headers })).json().user.username).toBe('my-local-owner');
     const newPassword = opaque();
     const rotated = await app.inject({ method: 'POST', url: '/api/session/password', headers, payload: { currentPassword: loginBody.password, newPassword } });
     expect(rotated.statusCode).toBe(200);
     expect((await app.inject({ url: '/api/accounts', headers })).statusCode).toBe(401);
-    expect((await app.inject({ method: 'POST', url: '/api/session/login', headers: { origin }, payload: loginBody })).statusCode).toBe(401);
-    const returning = await app.inject({ method: 'POST', url: '/api/session/login', headers: { origin }, payload: { ...loginBody, password: newPassword } });
+    const requestLogin = (headers: Record<string, string>, username: string) =>
+      app.inject({ method: 'POST', url: '/api/session/login', headers, remoteAddress: headers === localHeaders ? '127.0.0.1' : '192.0.2.2',
+        payload: { username, password: newPassword } });
+    expect((await requestLogin(localHeaders, loginBody.username)).statusCode).toBe(401);
+    const returning = await requestLogin(localHeaders, renamed.json().username);
     expect(returning.statusCode).toBe(200);
     expect(returning.json().user.initialPassword).toBe(false);
     const nextCookie = returning.cookies[0];
-    headers = { cookie: nextCookie.name + '=' + nextCookie.value, origin, 'x-csrf-token': returning.json().csrf };
+    headers = { ...localHeaders, cookie: nextCookie.name + '=' + nextCookie.value, 'x-csrf-token': returning.json().csrf };
+    expect((await requestLogin(lanHeaders, renamed.json().username)).statusCode).toBe(200);
+    expect((await requestLogin({ ...lanHeaders, origin }, renamed.json().username)).statusCode).toBe(403);
+    expect((await requestLogin({ host: 'unknown.test:3182', origin: 'http://unknown.test:3182' }, renamed.json().username)).statusCode).toBe(403);
     for (let i = 0; i < 6; i++) await app.inject({
-      method: 'POST', remoteAddress: '192.0.2.1', url: '/api/session/login', headers: { origin }, payload: { username: 'wrong-user', password: newPassword },
+      method: 'POST', remoteAddress: '192.0.2.1', url: '/api/session/login', headers: localHeaders, payload: { username: 'wrong-user', password: newPassword },
     });
-    const limited = await app.inject({ method: 'POST', remoteAddress: '192.0.2.1', url: '/api/session/login', headers: { origin }, payload: { username: 'wrong-user', password: newPassword } });
+    const limited = await app.inject({ method: 'POST', remoteAddress: '192.0.2.1', url: '/api/session/login', headers: localHeaders, payload: { username: 'wrong-user', password: newPassword } });
     expect(limited.statusCode).toBe(429);
     const row = await db.localUser.findUniqueOrThrow({ where: { id } });
     expect(row.passwordHash).not.toContain(newPassword);
@@ -140,6 +159,56 @@ describe.sequential('lokalny backend, integracje i uprawnienia', () => {
     const body = (await app.inject({ url: '/api/accounts', headers })).body;
     expect(body).not.toContain(xToken);
     expect(body).not.toContain(stored.encrypted);
+  });
+
+  it('zapisuje konfigurację w panelu i łączy dodatkowe konto z adresem LAN', async () => {
+    const clientSecret = opaque();
+    const fromLan = { ...headers, ...lanHeaders };
+    const saved = await app.inject({
+      method: 'PUT', url: '/api/integrations/x/client', headers: fromLan,
+      payload: { clientId: 'local-x-client', clientSecret, writeEnabled: true },
+    });
+    expect(saved.statusCode).toBe(200);
+    const status = await app.inject({ url: '/api/integrations', headers: fromLan });
+    expect(status.json().x).toMatchObject({ clientId: 'local-x-client', hasSecret: true });
+    expect(status.body).not.toContain(clientSecret);
+    expect(status.json().chat.callbackAvailable).toBe(false);
+    const started = await app.inject({ method: 'POST', url: '/api/integrations/x/start', headers: fromLan, payload: { acceptCosts: true } });
+    const authorization = new URL(started.json().url);
+    expect(authorization.searchParams.get('client_id')).toBe('local-x-client');
+    expect(authorization.searchParams.get('redirect_uri')).toBe(lanOrigin + '/api/integrations/x/callback');
+    const callback = '/api/integrations/x/callback?code=second-account&state=' + authorization.searchParams.get('state');
+    const completed = await app.inject({ url: callback, headers: fromLan });
+    const list = (await app.inject({ url: '/api/accounts', headers: fromLan })).json();
+    const second = list.find((item: { xId: string }) => item.xId === '393930');
+    expect(completed.headers.location).toBe(lanOrigin + '/integracje?event=x_connected&account=' + second.id);
+    expect(list.filter((item: { connected: boolean }) => item.connected)).toHaveLength(2);
+    const config = await db.integrationCredential.findUniqueOrThrow({ where: { userId_provider: { userId: id, provider: 'x' } } });
+    expect(config.encrypted).not.toContain(clientSecret);
+  });
+
+  it('zapisuje klucze AI z panelu, zwraca stan i usuwa wybrany klucz', async () => {
+    const key = opaque();
+    const put = await app.inject({ method: 'PUT', url: '/api/integrations/keys/openai', headers, payload: { key } });
+    expect(put.statusCode).toBe(200);
+    const status = await app.inject({ url: '/api/integrations', headers });
+    expect(status.json().apiProviders.openai).toBe(true);
+    expect(status.json().storedApiKeys).toEqual(['openai']);
+    expect(status.body).not.toContain(key);
+    const stored = await db.integrationCredential.findUniqueOrThrow({ where: { userId_provider: { userId: id, provider: 'openai' } } });
+    expect(stored.encrypted).not.toContain(key);
+    expect(new Vault(cfg.TOKEN_KEY).open(stored.encrypted, 'integration:' + id + ':openai')).toBe(key);
+    const base = '/api/accounts/' + archiveId;
+    const previous = (await app.inject({ url: base + '/settings', headers })).json().settings;
+    const updated = await app.inject({ method: 'PUT', url: base + '/settings', headers,
+      payload: { ...previous, aiPaidConsent: true, aiProvider: 'openai', aiModel: 'test-model' } });
+    expect(updated.statusCode).toBe(200);
+    const result = await app.inject({ method: 'POST', url: base + '/assistant', headers, payload: { question: 'How many profiles?', useModel: true } });
+    expect(result.json().provider).toBe('openai');
+    expect(new Headers(fetcher.mock.calls.at(-1)?.[1]?.headers).get('Authorization')).toBe('Bearer ' + key);
+    expect((await app.inject({ method: 'PUT', url: base + '/settings', headers, payload: previous })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'DELETE', url: '/api/integrations/keys/openai', headers })).statusCode).toBe(200);
+    expect((await app.inject({ url: '/api/integrations', headers })).json().apiProviders.openai).toBe(false);
   });
 
   it('używa loopbacku ChatGPT, sprawdza state, jednorazowość i powiązanie z sesją', async () => {

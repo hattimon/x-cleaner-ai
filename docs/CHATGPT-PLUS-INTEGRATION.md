@@ -1,6 +1,6 @@
 # ChatGPT plan usage and API providers
 
-Keep `ENABLE_CHATGPT_PLAN=true` and open the loopback dashboard. In **Integrations → ChatGPT Plan Usage**, choose **Continue with ChatGPT**, complete OpenAI OAuth and grant plan usage. The status panel reports granted scopes, the actual catalog of available models and the last returned token usage. In **Settings**, select a model and optionally allow it to run on scheduled scans. The encrypted registration survives container restarts. The backend serializes token refresh and attempts revocation on sign-out. [Official plan usage overview](https://developers.openai.com/siwc/token-sharing-open-source)
+Open the dashboard through localhost. In **Integrations → ChatGPT Plan Usage**, choose **Continue with ChatGPT** and grant access on the OpenAI page. The first sign-in uses the local callback required by OpenAI's open-source flow. Once connected, the dashboard can use that connection over LAN and the server can refresh its saved grant for background scans. In account **Settings**, select a model and optionally allow it to run on scheduled scans. The backend serializes token refresh and attempts revocation on sign-out. [Official plan usage overview](https://developers.openai.com/siwc/token-sharing-open-source)
 
 The installed host ID is stored in PostgreSQL. Initial OAuth uses the public `dynamic_agent_client` entry point, S256 PKCE, state and an OIDC nonce. The callback supplies an issued `oaiapp_…` client ID, used for exchange and renewal. An exact `127.0.0.1` redirect reaches the Windows loopback published by Compose. The backend accepts a short-lived receipt from the original authenticated local session before completing exchange. It verifies the ID token issuer, audience, signature, nonce and expiration using OpenAI's JWKS. [Registration and sign-in](https://developers.openai.com/siwc/token-sharing-open-source/sign-in)
 
@@ -8,13 +8,13 @@ Plan usage calls the public model and Responses endpoints using the OAuth creden
 
 ## Optional API keys
 
-| Provider | Environment variable |
+| Provider | Key page |
 | --- | --- |
-| OpenAI API | `OPENAI_API_KEY` |
-| Anthropic Claude | `ANTHROPIC_API_KEY` |
-| Google Gemini | `GEMINI_API_KEY` |
+| OpenAI API | [API keys](https://platform.openai.com/api-keys) |
+| Anthropic Claude | [API keys](https://platform.claude.com/settings/keys) |
+| Google Gemini | [API keys](https://aistudio.google.com/app/apikey) |
 
-After editing `.env`, recreate the backend. Under **Integrations**, confirm the key is configured. Select that provider and enter the model ID from its console in **Settings**. Confirm provider billing for the account. Calls follow the configured daily limit. These API credentials have independent provider billing. The provider endpoints use validated structured output. [OpenAI](https://developers.openai.com/api/docs/guides/structured-outputs) · [Anthropic](https://platform.claude.com/docs/en/build-with-claude/structured-outputs) · [Google](https://ai.google.dev/gemini-api/docs/structured-output)
+Use **Integrations → AI API providers → Add key**. The saved key is encrypted and takes precedence over an environment key for the same provider. Select that provider and enter the model ID from its console in account **Settings**. Confirm provider billing for the account. Calls follow the configured daily limit. The provider endpoints use validated structured output. [OpenAI](https://developers.openai.com/api/docs/guides/structured-outputs) · [Anthropic](https://platform.claude.com/docs/en/build-with-claude/structured-outputs) · [Google](https://ai.google.dev/gemini-api/docs/structured-output)
 
 For profile classification the app sends derived scores, evidence types and allowed post IDs. Raw X posts stay in the app. Assistant questions are sent when you choose a remote model. Both flows restrict the assistant to read-only context. [X Developer Policy](https://docs.x.com/developer-terms/policy)
 

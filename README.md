@@ -15,7 +15,7 @@ docker compose ps
 docker compose logs --no-color backend | Select-String 'initial_credentials'
 ```
 
-Open [http://localhost:3180](http://localhost:3180). The backend creates a unique owner username and password on the first start of an empty database. The installation log records them once as JSON with `event: initial_credentials`, `login`, `username` and `password`. Keep that log private. Change the credentials in **Settings → Local account security**. **First sign-in or password reset** at the bottom of the sign-in screen includes the recovery command.
+Open [http://localhost:3180](http://localhost:3180) or use the host's private IP address from your local network. On an empty database, the app creates `admin` with a generated password and records both once under `initial_credentials`. Change the username and password in **Settings → Local account security**. **First sign-in or password reset** at the bottom of the sign-in screen includes the recovery command.
 
 ```powershell
 docker compose exec backend node dist/server/account-cli.js reset-password
@@ -26,7 +26,7 @@ Changing or resetting the password invalidates existing sessions. The reset comm
 ## Review your following list
 
 1. Go to **X accounts → Import archive** and select `data/account.js` and all parts of `data/following.js` from your extracted X archive. The app records decisions and exports reports using the actual account IDs. Post evidence requires the X API.
-2. For live scanning, follow the [X API setup](docs/X-API-SETUP.md). Enable billable reads and set your request and estimated spending limits per account.
+2. For live scanning, choose **Integrations → Connect X account** and follow the one-time [X API setup](docs/X-API-SETUP.md). Use **Add another X account** for more accounts. Enable billable reads and set request and spending limits per account.
 3. Open **Scanning** and start a scan. The scheduler and cursor checkpoints live in PostgreSQL. Scheduled scans are opt-in.
 4. Search, filter, change the page size or select all matching results. Drag down from an unchecked checkbox to select a range. Start from a checked checkbox to deselect a range. Release to skip rows and start another range.
 5. Open **Unfollow candidates**, read the evidence and prepare a preview. Each live change requires its own confirmation. History keeps the result and supports a separate follow request where available.
@@ -34,11 +34,11 @@ Changing or resetting the password invalidates existing sessions. The reset comm
 
 ## AI providers
 
-Local rules and the local assistant work without a subscription. **Integrations → Continue with ChatGPT** connects through official ChatGPT OAuth. In **Settings**, select an available model and optionally authorize its use by scheduled scans. OpenAI API, Anthropic Claude API and Google Gemini API are optional. Each needs a server-side key, model ID and billing consent. See [AI integration](docs/CHATGPT-PLUS-INTEGRATION.md).
+Local rules and the local assistant work without a subscription. Open the panel over localhost and select **Integrations → Continue with ChatGPT** for official OAuth. You can also add an OpenAI API, Anthropic Claude API or Google Gemini API key in **Integrations**. In account **Settings**, select a model and decide whether scheduled scans can use it. [AI integration](docs/CHATGPT-PLUS-INTEGRATION.md)
 
 ## Raspberry Pi and DCC
 
-The same Compose stack supports 64-bit Ubuntu Server on Raspberry Pi. [Install as a background server](docs/RASPBERRY-PI.md) for native or prebuilt `linux/arm64` images, private access and reboot behavior. The DCC App Store uses the standalone image, which bundles the dashboard, backend and PostgreSQL in one container with a named volume. [DCC installation](docs/DCC-INSTALL.md)
+Select your Raspberry Pi 4 running 64-bit Ubuntu in the DCC App Store and install the **X-Cleaner AI** entry. The standalone image supports `linux/arm64` and `linux/amd64` and persists everything in a named volume. [DCC installation](docs/DCC-INSTALL.md) · [Raspberry Pi and Compose](docs/RASPBERRY-PI.md)
 
 ## Operations
 

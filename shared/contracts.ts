@@ -137,10 +137,11 @@ export type CleanupHistory = {
 };
 export type AccessState = 'missing' | 'unverified' | 'available' | 'denied' | 'limited' | 'offline';
 export type Integrations = {
-  x: { configured: boolean; writeEnabled: boolean; callback: string; operations: { key: string; status: AccessState; detail: string }[] };
+  x: { configured: boolean; clientId: string; hasSecret: boolean; writeEnabled: boolean; callback: string; operations: { key: string; status: AccessState; detail: string }[] };
   chat: { enabled: boolean; connected: boolean; planUsage: boolean; displayName: string | null; scopes: string[]; error: string | null; lastUsage: unknown; callbackAvailable: boolean };
   mcp: { enabled: boolean; keys: { id: string; canPrepare: boolean; expiresAt: string }[] };
   apiProviders: Record<ApiProvider, boolean>;
+  storedApiKeys: ApiProvider[];
 };
 export type ModelChoice = { id: string; label: string };
 export type AssistantReply = {

@@ -3,7 +3,7 @@ import { useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Archive, ArrowUpRight, CloudCog, Download, KeyRound, Link2, Plus, ShieldCheck, Sparkles, Upload, UsersRound } from 'lucide-react';
-import type { Account, Integrations, Settings } from '../shared/contracts.js';
+import type { Account, ApiProvider, Integrations, Settings } from '../shared/contracts.js';
 import { apiProviders, settingsSchema } from '../shared/contracts.js';
 import { api } from './api.js';
 import { Badge, Button, Dialog, Empty, ErrorBanner, Load, Panel, ProfileIdentity } from './ui.js';
@@ -14,9 +14,25 @@ import { when } from './locale.js';
 export type Run = <T>(work: () => Promise<T>, message?: string) => Promise<T | undefined>;
 export type Navigate = (path: string) => void;
 
-export function PasswordPanel({ initialized, changed }: { initialized: boolean; changed: () => void }) {
+export function PasswordPanel({ username, initialized, changed, renamed }: {
+  username: string; initialized: boolean; changed: () => void; renamed: (username: string) => void;
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>();
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameError, setRenameError] = useState<unknown>();
+  const rename = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    setRenameError(undefined);
+    setBusy(true);
+    try {
+      const updated = await api.changeUsername(String(data.get('username')), String(data.get('currentPassword')));
+      renamed(updated.username);
+      setRenameOpen(false);
+    } catch (failure) { setRenameError(failure); }
+    finally { setBusy(false); }
+  };
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
@@ -40,6 +56,20 @@ export function PasswordPanel({ initialized, changed }: { initialized: boolean; 
       <div className="row-actions"><Button type="submit" tone="primary" disabled={busy}>{busy ? tr("Zapisywanie…") : tr("Zmień hasło")}</Button>
         <small className="muted">{tr("Zmiana kończy wszystkie dotychczasowe sesje.")}</small></div>
     </form>
+    <div className="section-content account-name">
+      <div className="rail-line"><span>{tr("Nazwa użytkownika")}</span><strong>{username}</strong></div>
+      <Button tone="quiet" onClick={() => { setRenameError(undefined); setRenameOpen(true); }}>{phrase('Zmień nazwę użytkownika', 'Change username')}</Button>
+    </div>
+    {renameOpen && <Dialog title={phrase('Zmień nazwę użytkownika', 'Change username')} onClose={() => setRenameOpen(false)}>
+      <form className="form-stack" onSubmit={rename}>
+        <label>{phrase('Nowa nazwa użytkownika', 'New username')}<input name="username" defaultValue={username} autoComplete="username" minLength={3} maxLength={40} required /></label>
+        <small className="muted">{phrase('Użyj 3–40 znaków. Dozwolone są litery bez polskich znaków, cyfry, kropka, myślnik i podkreślenie.', 'Use 3–40 letters, digits, periods, hyphens or underscores.')}</small>
+        <label>{tr("Obecne hasło")}<input name="currentPassword" type="password" autoComplete="current-password" maxLength={256} required /></label>
+        {Boolean(renameError) && <ErrorBanner error={renameError} />}
+        <div className="dialog-actions"><Button onClick={() => setRenameOpen(false)}>{tr("Anuluj")}</Button>
+          <Button type="submit" tone="primary" disabled={busy}>{phrase('Zapisz nazwę', 'Save username')}</Button></div>
+      </form>
+    </Dialog>}
   </Panel>;
 }
 
@@ -81,9 +111,14 @@ export function AccountsView({ accounts, current, onSelect, openArchive, navigat
   const [disconnecting, setDisconnecting] = useState<Account>();
   const [pending, setPending] = useState(false);
   return <>
-    <Header title={tr("Konta X")} text={tr("Zarządzaj własnymi kontami i importowanymi listami.")} actions={<Button tone="primary" icon={<Archive size={17} />} onClick={openArchive}>{tr("Importuj archiwum")}</Button>} />
+    <Header title={tr("Konta X")} text={tr("Zarządzaj własnymi kontami i importowanymi listami.")} actions={<>
+      <Button tone="primary" icon={<Plus size={17} />} onClick={() => navigate('/integracje')}>
+        {accounts.some(account => account.connected) ? phrase('Dodaj kolejne konto X', 'Add another X account') : tr("Połącz konto X")}
+      </Button>
+      <Button icon={<Archive size={17} />} onClick={openArchive}>{tr("Importuj archiwum")}</Button>
+    </>} />
     <Panel title={tr("Źródła danych")} icon={<UsersRound size={18} />}>
-      {!accounts.length ? <Empty title={tr("Brak dodanych kont")} text={tr("Podłącz konto przez oficjalne OAuth X albo zaimportuj pliki z archiwum.")} action={<Button onClick={() => navigate('/integracje')} icon={<Link2 size={17} />}>{tr("Skonfiguruj X API")}</Button>} />
+      {!accounts.length ? <Empty title={tr("Brak dodanych kont")} text={tr("Podłącz konto przez oficjalne OAuth X albo zaimportuj pliki z archiwum.")} />
         : <div className="account-list">{accounts.map(account => <div className="account-row" key={account.id}>
           <ProfileIdentity item={account} /><Badge color={account.mode === 'LIVE' ? 'blue' : 'purple'}>{account.mode === 'LIVE' ? 'LIVE' : tr("Archiwum")}</Badge>
           <span className="muted">{account.mode === 'LIVE' ? account.connected ? tr("Połączone") : tr("Rozłączone") : tr("Dane lokalne")}</span>
@@ -91,7 +126,6 @@ export function AccountsView({ accounts, current, onSelect, openArchive, navigat
             {account.connected && <Button onClick={() => setDisconnecting(account)}>{tr("Rozłącz")}</Button>}</div>
         </div>)}</div>}
     </Panel>
-    {accounts.length > 0 && <Button onClick={() => navigate('/integracje')} icon={<Plus size={17} />}>{tr("Dodaj połączenie X")}</Button>}
     {disconnecting && <Dialog title={tr("Rozłącz konto X")} onClose={() => setDisconnecting(undefined)}>
       <p>Zakończyć połączenie z @{disconnecting.username}? Trwające skanowanie tego konta zostanie anulowane.</p>
       <div className="dialog-actions"><Button onClick={() => setDisconnecting(undefined)}>{tr("Anuluj")}</Button><Button tone="danger" disabled={pending} onClick={async () => {
@@ -109,19 +143,107 @@ export function AccountsView({ accounts, current, onSelect, openArchive, navigat
 
 const statusLabel = { available: 'Dostępne', denied: 'Odmowa X', limited: 'Limit', offline: 'Archiwum', missing: 'Brak uprawnienia', unverified: 'Do potwierdzenia' };
 const apiNames = { openai: 'OpenAI API', anthropic: 'Anthropic Claude API', gemini: 'Google Gemini API' };
-const keyNames = { openai: 'OPENAI_API_KEY', anthropic: 'ANTHROPIC_API_KEY', gemini: 'GEMINI_API_KEY' };
+const keyPages = {
+  openai: 'https://platform.openai.com/api-keys',
+  anthropic: 'https://platform.claude.com/settings/keys',
+  gemini: 'https://aistudio.google.com/app/apikey',
+};
+const identityCost = () => phrase('Po autoryzacji X może naliczyć koszt jednego odczytu profilu.', 'X may charge for one profile lookup after you approve access.');
 const chatErrors: Record<string, string> = {
   chat_no_scope: 'Brak przyznanej zgody na korzystanie z planu.',
   chat_reauthorize: 'Połącz ponownie konto ChatGPT.',
   chat_limit: 'Osiągnięto limit planu ChatGPT.',
   chat_plan_unavailable: 'Plan lub uprawnienia nie udostępniły operacji.',
 };
-export function IntegrationsView({ account, data, run, navigate, openArchive }: { account?: Account; data: Integrations; run: Run; navigate: Navigate; openArchive: () => void }) {
-  const [acceptCosts, setAcceptCosts] = useState(false);
+function XClientDialog({ x, run, close }: { x: Integrations['x']; run: Run; close: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const clientId = String(form.get('clientId')).trim();
+    const clientSecret = String(form.get('clientSecret')).trim();
+    const writeEnabled = form.has('writeEnabled');
+    const connect = (event.nativeEvent as SubmitEvent).submitter?.getAttribute('value') !== 'save';
+    setBusy(true);
+    const result = await run(async () => {
+      await api.saveXClient({ clientId, clientSecret: clientSecret || undefined, writeEnabled });
+      return connect ? api.startX() : { url: null };
+    });
+    if (result?.url) location.assign(result.url);
+    else if (result) close();
+    else setBusy(false);
+  };
+  return <Dialog title={phrase('Połącz aplikację X', 'Connect your X app')} onClose={close}>
+    <form className="form-stack" onSubmit={submit}>
+      <p>{phrase('W konsoli X utwórz aplikację i włącz uwierzytelnianie użytkowników OAuth 2.0. Jako typ wybierz Native App, aby użyć samego Client ID.', 'Create an app in the X console and enable OAuth 2.0 user authentication. Choose Native App to use just a Client ID.')}</p>
+      <a className="button button--secondary" href="https://console.x.com/" target="_blank" rel="noreferrer"><ArrowUpRight size={16} />{phrase('Otwórz konsolę X', 'Open X Developer Console')}</a>
+      <label>{tr("Adres przekierowania")}<input value={x.callback} readOnly onFocus={event => event.currentTarget.select()} /></label>
+      <small className="muted">{phrase('Wklej ten dokładny adres w polu Callback URI w konsoli X.', 'Paste this exact address into the Callback URI field in the X console.')}</small>
+      {navigator.clipboard && <Button tone="quiet" onClick={() => { void navigator.clipboard.writeText(x.callback).then(() => setCopied(true)).catch(() => {}); }}>
+        {copied ? phrase('Skopiowano', 'Copied') : phrase('Kopiuj adres przekierowania', 'Copy redirect URL')}
+      </Button>}
+      <label>Client ID<input name="clientId" defaultValue={x.clientId} autoComplete="off" spellCheck={false} maxLength={250} required /></label>
+      <details className="integration-details">
+        <summary>{phrase('Opcje aplikacji X', 'X app options')}</summary>
+        <div className="form-stack">
+          <label>Client Secret <small className="muted">{phrase('Tylko dla klienta poufnego', 'Confidential clients only')}</small>
+            <input name="clientSecret" type="password" autoComplete="off" maxLength={512} placeholder={x.hasSecret ? phrase('Zapisano sekret', 'Secret saved') : undefined} />
+          </label>
+          <label className="check"><input type="checkbox" name="writeEnabled" defaultChecked={x.writeEnabled} />
+            {phrase('Zezwól na pojedyncze unfollow i ponowne follow po potwierdzeniu.', 'Allow individual unfollow and follow actions after confirmation.')}
+          </label>
+          <small className="muted">{phrase('Włącz też uprawnienia zapisu dla aplikacji w konsoli X i połącz konto ponownie.', 'Enable write permissions for the app in the X console and reconnect the account.')}</small>
+        </div>
+      </details>
+      <small className="muted">{identityCost()}</small>
+      <div className="dialog-actions">
+        <Button onClick={close}>{tr("Anuluj")}</Button>
+        {x.configured && <Button type="submit" value="save" disabled={busy}>{tr("Zapisz ustawienia")}</Button>}
+        <Button tone="primary" type="submit" value="connect" disabled={busy}>{phrase('Zapisz i połącz z X', 'Save and connect to X')}</Button>
+      </div>
+    </form>
+  </Dialog>;
+}
+
+function ApiKeyDialog({ provider, stored, run, close }: { provider: ApiProvider; stored: boolean; run: Run; close: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const key = String(new FormData(event.currentTarget).get('key')).trim();
+    setBusy(true);
+    if (await run(() => api.saveApiKey(provider, key), phrase('Zapisano klucz API.', 'API key saved.'))) close();
+    else setBusy(false);
+  };
+  return <Dialog title={apiNames[provider]} onClose={close}>
+    <form className="form-stack" onSubmit={submit}>
+      <a className="button button--secondary" href={keyPages[provider]} target="_blank" rel="noreferrer"><ArrowUpRight size={16} />{phrase('Otwórz stronę kluczy API', 'Open API keys page')}</a>
+      <label>{phrase('Klucz API', 'API key')}<input name="key" type="password" autoComplete="off" minLength={8} maxLength={512} required /></label>
+      <small className="muted">{phrase('Po zapisaniu wybierz model w ustawieniach konta X.', 'After saving, choose a model in the X account settings.')}</small>
+      <div className="dialog-actions">
+        {stored && <Button tone="danger" disabled={busy} onClick={async () => {
+          setBusy(true);
+          if (await run(() => api.removeApiKey(provider), phrase('Usunięto zapisany klucz.', 'Saved key removed.'))) close();
+          else setBusy(false);
+        }}>{phrase('Usuń zapisany klucz', 'Remove saved key')}</Button>}
+        <Button onClick={close}>{tr("Anuluj")}</Button>
+        <Button tone="primary" type="submit" disabled={busy}>{phrase('Zapisz klucz', 'Save key')}</Button>
+      </div>
+    </form>
+  </Dialog>;
+}
+
+export function IntegrationsView({ account, accounts, select, data, run, navigate, openArchive }: {
+  account?: Account; accounts: Account[]; select: (id: string) => void; data: Integrations; run: Run; navigate: Navigate; openArchive: () => void;
+}) {
+  const [configureX, setConfigureX] = useState(false);
+  const [keyProvider, setKeyProvider] = useState<ApiProvider>();
   const [canPrepare, setCanPrepare] = useState(false);
   const [key, setKey] = useState<string>();
   const [working, setWorking] = useState(false);
   const { chat, x, mcp } = data;
+  const linked = accounts.filter(item => item.connected);
+  const localPanel = 'http://localhost' + (location.port ? ':' + location.port : '') + '/integracje';
   const models = useQuery({ queryKey: ['models'], queryFn: api.models, enabled: false });
   const signIn = async (start: () => Promise<{ url: string }>) => {
     setWorking(true);
@@ -130,30 +252,43 @@ export function IntegrationsView({ account, data, run, navigate, openArchive }: 
     else setWorking(false);
   };
   return <>
-    <Header title={tr("Integracje")} text={tr("Stan połączeń, zakresy dostępu i rozliczenia.")} />
-    <Panel title="X API v2" icon={<CloudCog size={18} />} right={<Badge color={account?.connected ? 'green' : 'neutral'}>{account?.connected ? tr("Połączono") : x.configured ? tr("Gotowe do połączenia") : tr("Wymaga konfiguracji")}</Badge>}>
+    <Header title={tr("Integracje")} text={phrase('Połącz swoje konta X i wybierz dostawcę AI.', 'Connect your X accounts and choose an AI provider.')} />
+    <div className="integration-grid">
+    <Panel title="X" icon={<CloudCog size={18} />} right={<Badge color={linked.length ? 'green' : 'neutral'}>{linked.length ? tr("Połączono") : tr("Rozłączone")}</Badge>}>
       <div className="section-content stack">
-        {!x.configured && <p>Ustaw <code>X_CLIENT_ID</code> w pliku <code>.env</code>. W konsoli X zarejestruj poniższy adres przekierowania.</p>}
-        <div className="copy-field"><span>{tr("Adres przekierowania")}</span><code>{x.callback}</code></div>
-        <p className="muted">{tr("X pobiera opłaty za odczyty i zapisy według zużycia. Połączenie wykonuje odczyt tożsamości. Limit skanowania ustawisz osobno dla każdego konta.")}</p>
-        {x.configured && <label className="check"><input type="checkbox" checked={acceptCosts} onChange={event => setAcceptCosts(event.target.checked)} />{tr("Akceptuję koszt odczytu tożsamości w X API.")}</label>}
-        <div className="row-actions"><Button tone="primary" icon={<Link2 size={17} />} disabled={!x.configured || !acceptCosts || working} onClick={() => void signIn(api.startX)}>{tr("Połącz konto X")}</Button>
+        <div className="row-actions"><Button tone="primary" icon={<Link2 size={17} />} disabled={working} onClick={() => {
+          if (x.configured) void signIn(api.startX);
+          else setConfigureX(true);
+        }}>{linked.length ? phrase('Dodaj kolejne konto X', 'Add another X account') : tr("Połącz konto X")}</Button>
           <Button icon={<Archive size={17} />} onClick={openArchive}>{tr("Importuj archiwum")}</Button></div>
-        <div className="diagnostics">{x.operations.map(op => <div key={op.key}><span><strong>{tr(op.key)}</strong><small>{tr(op.detail)}</small></span><Badge color={op.status === 'available' ? 'green' : op.status === 'limited' ? 'yellow' : 'neutral'}>{tr(statusLabel[op.status])}</Badge></div>)}</div>
-        <small className="muted">{tr("Zapis LIVE w konfiguracji serwera:") + " "}{x.writeEnabled ? tr("włączony") : tr("wyłączony")}.</small>
+        <small className="muted">{x.configured ? identityCost() : phrase('Przy pierwszym połączeniu panel poprosi o Client ID z konsoli X.', 'The first connection walks you through adding a Client ID from the X console.')}</small>
+        {linked.length > 0 && <label className="form-stack">{phrase('Aktywne konto X', 'Active X account')}
+          <select value={account?.connected ? account.id : ''} onChange={event => { if (event.target.value) select(event.target.value); }}>
+            {!account?.connected && <option value="">{phrase('Wybierz konto X', 'Choose an X account')}</option>}
+            {linked.map(item => <option key={item.id} value={item.id}>@{item.username}</option>)}
+          </select>
+        </label>}
+        {linked.length > 0 && <small className="muted">{phrase('Aby dodać inne konto, przełącz konto na x.com przed udzieleniem zgody.', 'To add another account, switch accounts on x.com before approving access.')}</small>}
+        {x.configured && <Button tone="quiet" icon={<KeyRound size={16} />} onClick={() => setConfigureX(true)}>{phrase('Ustawienia aplikacji X', 'X app settings')}</Button>}
+        {account && <details className="integration-details">
+          <summary>{phrase('Uprawnienia X', 'X permissions')}</summary>
+          <div className="diagnostics">{x.operations.map(op => <div key={op.key}><span><strong>{tr(op.key)}</strong><small>{tr(op.detail)}</small></span><Badge color={op.status === 'available' ? 'green' : op.status === 'limited' ? 'yellow' : 'neutral'}>{tr(statusLabel[op.status])}</Badge></div>)}</div>
+        </details>}
       </div>
     </Panel>
     <Panel title="ChatGPT Plan Usage" icon={<Sparkles size={18} />} right={<Badge color={chat.planUsage ? 'green' : 'neutral'}>{chat.planUsage ? tr("Autoryzowano plan") : chat.connected ? tr("Tylko tożsamość") : tr("Rozłączone")}</Badge>}>
       <div className="section-content stack">
-        <p>{chat.planUsage ? tr("Analizy wykorzystują dostępny limit połączonego planu ChatGPT.") : tr("Oficjalne logowanie sprawdza uprawnienia i modele dostępne dla Twojego konta. Do pracy lokalnej dostępne są reguły.")}</p>
+        <p>{chat.planUsage ? tr("Analizy wykorzystują dostępny limit połączonego planu ChatGPT.") : phrase('Zaloguj się przez ChatGPT i potwierdź dostęp do modeli dostępnych w Twoim planie.', 'Sign in with ChatGPT and approve access to the models available in your plan.')}</p>
         {chat.displayName && <div className="copy-field"><span>{tr("Rejestracja ChatGPT")}</span><strong>{chat.displayName}</strong></div>}
         {Boolean(chat.lastUsage) && <small className="muted">{tr("Ostatnie zużycie planu:") + " "}{formatUsage(chat.lastUsage)}</small>}
-        {chat.scopes.length > 0 && <small className="muted">Uprawnienia: {chat.scopes.join(', ')}</small>}
         {chat.error && <ErrorBanner error={chatErrors[chat.error] ?? tr("Wymagana weryfikacja uprawnień ChatGPT.")} />}
-        {!chat.enabled && <p className="muted">{tr("Aby uruchomić integrację, ustaw ENABLE_CHATGPT_PLAN=true.")}</p>}
-        {chat.enabled && !chat.callbackAvailable && <p className="muted">{tr("Do autoryzacji otwórz aplikację przez skonfigurowany adres loopback.")}</p>}
+        {!chat.enabled && <p className="muted">{phrase('Logowanie ChatGPT jest wyłączone na tym serwerze.', 'ChatGPT sign-in is disabled on this server.')}</p>}
+        {chat.enabled && !chat.callbackAvailable && !chat.connected && <div className="stack">
+          <small className="muted">{phrase('OpenAI wymaga localhost do pierwszego logowania. Otwórz panel na komputerze z aplikacją lub przez tunel do serwera.', 'OpenAI requires localhost for sign-in. Open the dashboard on the app host or through a local tunnel to the server.')}</small>
+          {location.protocol === 'http:' && <a className="button button--secondary" href={localPanel}>{phrase('Otwórz panel na localhost', 'Open dashboard on localhost')}</a>}
+        </div>}
         <div className="row-actions">
-          <Button data-oai-siwc-button="" icon={<Sparkles size={17} />} disabled={!chat.enabled || !chat.callbackAvailable || working} onClick={() => void signIn(api.startChat)}>Continue with ChatGPT</Button>
+          {chat.enabled && chat.callbackAvailable && !chat.planUsage && <Button tone="primary" data-oai-siwc-button="" disabled={working} onClick={() => void signIn(api.startChat)}>Continue with ChatGPT</Button>}
           {chat.connected && <Button onClick={() => void run(async () => {
             const response = await api.disconnectChat();
             if (!response.revoked) throw new Error(tr("Sesja zakończona lokalnie. Cofnij dostęp również w ustawieniach ChatGPT."));
@@ -167,13 +302,17 @@ export function IntegrationsView({ account, data, run, navigate, openArchive }: 
         {account && chat.planUsage && <Button tone="quiet" icon={<ArrowUpRight size={16} />} onClick={() => navigate('/ustawienia')}>{tr("Wybierz model w ustawieniach")}</Button>}
       </div>
     </Panel>
+    </div>
     <Panel title={phrase('Dostawcy AI przez API', 'AI API providers')} icon={<KeyRound size={18} />}>
       <div className="section-content stack">
-        <p>{phrase('Opcjonalne klucze ustaw w .env i odtwórz backend. Wybierz dostawcę, model i zgodę na rozliczanie dla danego konta.', 'Set optional API keys in .env and recreate the backend. Choose a provider, model and billing consent per account.')}</p>
+        <p>{phrase('Zapisz klucz wybranego dostawcy. Model i zgodę na rozliczanie ustawisz osobno dla każdego konta X.', 'Save the provider key here. Choose the model and billing consent for each X account.')}</p>
         <div className="diagnostics">{apiProviders.map(provider => <div key={provider}>
-          <span><strong>{apiNames[provider]}</strong><small><code>{keyNames[provider]}</code></small></span>
-          <Badge color={data.apiProviders[provider] ? 'green' : 'neutral'}>{data.apiProviders[provider] ? phrase('Klucz skonfigurowany', 'Key configured') : phrase('Brak klucza', 'No key')}</Badge>
+          <span><strong>{apiNames[provider]}</strong><small>{data.apiProviders[provider] ? phrase('Klucz skonfigurowany', 'Key configured') : phrase('Brak klucza', 'No key')}</small></span>
+          <Button onClick={() => setKeyProvider(provider)} aria-label={(data.apiProviders[provider] ? phrase('Zmień klucz', 'Change key') : phrase('Dodaj klucz', 'Add key')) + ' ' + apiNames[provider]}>
+            {data.apiProviders[provider] ? phrase('Zmień klucz', 'Change key') : phrase('Dodaj klucz', 'Add key')}
+          </Button>
         </div>)}</div>
+        {account && Object.values(data.apiProviders).some(Boolean) && <Button tone="quiet" icon={<ArrowUpRight size={16} />} onClick={() => navigate('/ustawienia')}>{tr("Wybierz model w ustawieniach")}</Button>}
       </div>
     </Panel>
     <Panel title={tr("MCP lokalny")} icon={<KeyRound size={18} />} right={<Badge>{mcp.enabled ? tr("Dostęp przez stdio") : tr("Wyłączono")}</Badge>}>
@@ -188,6 +327,8 @@ export function IntegrationsView({ account, data, run, navigate, openArchive }: 
         </>}
       </div>
     </Panel>
+    {configureX && <XClientDialog x={x} run={run} close={() => setConfigureX(false)} />}
+    {keyProvider && <ApiKeyDialog provider={keyProvider} stored={data.storedApiKeys.includes(keyProvider)} run={run} close={() => setKeyProvider(undefined)} />}
   </>;
 }
 

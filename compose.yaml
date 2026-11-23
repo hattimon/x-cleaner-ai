@@ -34,7 +34,7 @@ services:
       X_CLIENT_ID: ${X_CLIENT_ID:-}
       X_CLIENT_SECRET: ${X_CLIENT_SECRET:-}
       X_ENABLE_WRITE: ${X_ENABLE_WRITE:-false}
-      ENABLE_CHATGPT_PLAN: ${ENABLE_CHATGPT_PLAN:-false}
+      ENABLE_CHATGPT_PLAN: ${ENABLE_CHATGPT_PLAN:-true}
       SIWC_CALLBACK_ORIGIN: ${SIWC_CALLBACK_ORIGIN:-http://127.0.0.1:3180}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -64,7 +64,7 @@ services:
       backend:
         condition: service_healthy
     ports:
-      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-3180}:8080"
+      - "${APP_BIND:-0.0.0.0}:${APP_PORT:-3180}:8080"
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
       interval: 10s

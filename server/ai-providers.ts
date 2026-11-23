@@ -5,7 +5,7 @@ import type { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import type { ModelChoice, Evaluation } from '../shared/contracts.js';
 import type { Config } from './config.js';
-import { AppError } from './config.js';
+import { AppError, isPanelLoopback } from './config.js';
 import { audit, json, lock, reserveUsage } from './db.js';
 import type { Callback, Pending } from './oauth.js';
 import { secureEquals, Vault } from './security.js';
@@ -30,12 +30,20 @@ const providerError = z.object({ error: z.object({ code: z.string().nullable().o
 const usageSchema = z.object({ input_tokens: z.number().int().nonnegative(), output_tokens: z.number().int().nonnegative() });
 
 export const chatCallback = (config: Config) => config.SIWC_CALLBACK_ORIGIN + '/api/integrations/chatgpt/callback';
+export function chatRedirect(panel: string) {
+  const origin = new URL(panel);
+  if (origin.protocol !== 'http:' || !isPanelLoopback(origin.hostname)) return undefined;
+  const loopback = new URL(origin);
+  loopback.hostname = '127.0.0.1';
+  loopback.pathname = '/api/integrations/chatgpt/callback';
+  return { panel, callback: loopback.href };
+}
 export function chatAuthorization(config: Config, host: string, attempt: Pending & { state: string; challenge: string }) {
   const url = new URL(issuer + '/api/accounts/authorize');
   url.search = new URLSearchParams({
     client_id: attempt.clientId || registrationClientId, ext_agent_host_id: host,
     ...(attempt.clientId ? {} : { agent_name_hint: 'X-Cleaner AI' }),
-    response_type: 'code', redirect_uri: chatCallback(config), scope: chatScopes.join(' '), resource,
+    response_type: 'code', redirect_uri: attempt.chat?.callback ?? chatCallback(config), scope: chatScopes.join(' '), resource,
     state: attempt.state, nonce: attempt.nonce, code_challenge: attempt.challenge, code_challenge_method: 'S256',
   }).toString();
   return url.toString();
@@ -168,11 +176,6 @@ export class ChatGPTPlanProvider implements AIProvider {
     });
     return host.hostId;
   }
-  get callbackAvailable() {
-    return ['localhost', '127.0.0.1'].includes(new URL(this.config.PUBLIC_ORIGIN).hostname)
-      && (new URL(this.config.PUBLIC_ORIGIN).port || '80') === (new URL(this.config.SIWC_CALLBACK_ORIGIN).port || '80')
-      && this.config.PUBLIC_ORIGIN.startsWith('http:');
-  }
   requireEnabled() {
     if (!this.config.ENABLE_CHATGPT_PLAN) throw new AppError(403, 'chat_disabled', 'Włącz integrację ChatGPT Plan Usage w konfiguracji serwera.');
   }
@@ -184,7 +187,8 @@ export class ChatGPTPlanProvider implements AIProvider {
       throw new AppError(400, 'chat_client', 'OpenAI nie zwrócił oczekiwanej rejestracji klienta.');
     }
     const tokens = await exchange(this.fetcher, {
-      grant_type: 'authorization_code', client_id: clientId, code: result.code, code_verifier: pending.verifier, redirect_uri: chatCallback(this.config),
+      grant_type: 'authorization_code', client_id: clientId, code: result.code, code_verifier: pending.verifier,
+      redirect_uri: pending.chat?.callback ?? chatCallback(this.config),
     });
     if (!tokens.id_token) throw new AppError(401, 'chat_identity', 'ChatGPT nie zwrócił tokena OIDC.');
     const identity = await this.verify(tokens.id_token, clientId, pending.nonce);
@@ -206,12 +210,12 @@ export class ChatGPTPlanProvider implements AIProvider {
       await audit(tx, userId, null, 'chat.connected', data.errorCode ? 'Połączono konto ChatGPT. Uprawnienie do planu jest niedostępne.' : 'Połączono konto ChatGPT z uprawnieniem do korzystania z planu.');
     });
   }
-  async status(userId: string) {
+  async status(userId: string, panel = this.config.PUBLIC_ORIGIN) {
     const row = await this.db.chatConnection.findUnique({ where: { userId } });
     const enabled = this.config.ENABLE_CHATGPT_PLAN;
     return {
       enabled, connected: enabled && Boolean(row?.encrypted) && row?.errorCode !== 'chat_reauthorize',
-      callbackAvailable: this.callbackAvailable, displayName: row?.displayName ?? null, scopes: row?.scopes ?? [],
+      callbackAvailable: Boolean(chatRedirect(panel)), displayName: row?.displayName ?? null, scopes: row?.scopes ?? [],
       planUsage: enabled && Boolean(row?.encrypted) && row?.errorCode !== 'chat_reauthorize' && row?.scopes.includes(usageScope) === true && row.scopes.includes('resource.invoke'),
       error: row?.errorCode ?? null, lastUsage: row?.lastUsage ?? null,
     };

@@ -115,7 +115,7 @@ test('import, reguły, zaznaczenie profili, ochrona, eksport i historia', async 
   await expect(page.getByText(/Do porównania potrzebne|Dwa ostatnie skany/)).toBeVisible();
   await navigation.getByRole('link', { name: 'Integracje', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Continue with ChatGPT' })).toBeEnabled();
-  await expect(page.getByRole('button', { name: 'Połącz konto X', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Połącz konto X', exact: true })).toBeEnabled();
   await navigation.getByRole('link', { name: 'Dashboard', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Struktura kont' })).toBeVisible();
   if (process.env.XC_EVIDENCE === '1') {
@@ -143,7 +143,52 @@ test('mobile 390 px, menu klawiaturowe i odczyt wcześniej zapisanej listy', asy
   await expect(modal).toBeHidden();
 });
 
-test('polecenie resetu na ekranie logowania i zmiana hasła z ustawień', async ({ page }) => {
+test('integracje zapisują ustawienia X i klucz AI oraz otwierają autoryzację z panelu', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await signIn(page);
+  await page.getByRole('link', { name: 'Integracje', exact: true }).click();
+  const connectX = page.getByRole('button', { name: 'Połącz konto X', exact: true });
+  const connectChat = page.getByRole('button', { name: 'Continue with ChatGPT' });
+  await expect(connectX).toBeVisible();
+  await expect(connectChat).toBeVisible();
+  if (process.env.XC_EVIDENCE === '1') {
+    await mkdir(evidence, { recursive: true });
+    await page.screenshot({ path: join(evidence, 'integrations.png'), animations: 'disabled' });
+  }
+  await connectX.click();
+  const x = page.getByRole('dialog', { name: 'Połącz aplikację X' });
+  await expect(x.getByLabel('Adres przekierowania')).toHaveValue('http://localhost:3182/api/integrations/x/callback');
+  if (process.env.XC_EVIDENCE === '1') await page.screenshot({ path: join(evidence, 'connect-x.png'), animations: 'disabled' });
+  await x.getByLabel('Client ID').fill('qa-browser-client');
+  await page.route('https://x.com/i/oauth2/authorize**', route => route.fulfill({ contentType: 'text/html', body: '<title>X authorization route</title>' }));
+  await x.getByRole('button', { name: 'Zapisz i połącz z X' }).click();
+  await page.waitForURL('https://x.com/i/oauth2/authorize**');
+  expect(new URL(page.url()).searchParams.get('client_id')).toBe('qa-browser-client');
+  await page.goto('/integracje');
+  await expect(page.getByRole('button', { name: 'Ustawienia aplikacji X' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Dodaj klucz Google Gemini API' }).click();
+  const provider = page.getByRole('dialog', { name: 'Google Gemini API' });
+  await provider.getByLabel('Klucz API', { exact: true }).fill('qa-fixture-key-0123456789');
+  await provider.getByRole('button', { name: 'Zapisz klucz', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Zmień klucz Google Gemini API' })).toBeVisible();
+  await page.getByRole('button', { name: 'Zmień klucz Google Gemini API' }).click();
+  await expect(provider.getByLabel('Klucz API', { exact: true })).toHaveValue('');
+  await provider.getByRole('button', { name: 'Usuń zapisany klucz' }).click();
+  await expect(page.getByRole('button', { name: 'Dodaj klucz Google Gemini API' })).toBeVisible();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+  if (process.env.XC_EVIDENCE === '1') await page.screenshot({ path: join(evidence, 'integrations-mobile.png'), animations: 'disabled' });
+  await page.route('https://auth.openai.com/api/accounts/authorize**', route => route.fulfill({ contentType: 'text/html', body: '<title>ChatGPT authorization route</title>' }));
+  await connectChat.click();
+  await page.waitForURL('https://auth.openai.com/api/accounts/authorize**');
+  expect(new URL(page.url()).searchParams.get('redirect_uri')).toBe('http://127.0.0.1:3182/api/integrations/chatgpt/callback');
+  expect(errors).toEqual([]);
+});
+
+test('polecenie resetu na ekranie logowania oraz zmiana loginu i hasła z ustawień', async ({ page }) => {
   await page.goto('/');
   await page.getByText('Pierwsze logowanie lub reset hasła', { exact: true }).click();
   await expect(page.getByText('docker compose exec backend node dist/server/account-cli.js reset-password', { exact: true })).toBeVisible();
@@ -151,6 +196,17 @@ test('polecenie resetu na ekranie logowania i zmiana hasła z ustawień', async 
   await signIn(page);
   await page.getByRole('link', { name: 'Ustawienia', exact: true }).click();
   const form = page.getByRole('heading', { name: 'Bezpieczeństwo konta lokalnego' }).locator('xpath=../..');
+  await form.getByRole('button', { name: 'Zmień nazwę użytkownika' }).click();
+  const rename = page.getByRole('dialog', { name: 'Zmień nazwę użytkownika' });
+  await rename.getByLabel('Nowa nazwa użytkownika').fill('qa-renamed');
+  await rename.getByLabel('Obecne hasło', { exact: true }).fill(password);
+  await rename.getByRole('button', { name: 'Zapisz nazwę' }).click();
+  await expect(page.locator('.local-user')).toContainText('qa-renamed');
+  await form.getByRole('button', { name: 'Zmień nazwę użytkownika' }).click();
+  await rename.getByLabel('Nowa nazwa użytkownika').fill(username);
+  await rename.getByLabel('Obecne hasło', { exact: true }).fill(password);
+  await rename.getByRole('button', { name: 'Zapisz nazwę' }).click();
+  await expect(rename).toBeHidden();
   const rotated = randomBytes(24).toString('base64url');
   await form.getByLabel('Obecne hasło', { exact: true }).fill(password);
   await form.getByLabel(/^Nowe hasło/).fill(rotated);

@@ -76,6 +76,7 @@ model LocalUser {
   accounts       XAccount[]
   oauthAttempts  OAuthAttempt[]
   chatConnection ChatConnection?
+  integrationCredentials IntegrationCredential[]
   audit          AuditEvent[]
   mcpKeys        McpKey[]
 }
@@ -92,6 +93,14 @@ model Session {
 model HostIdentity {
   key    String @id
   hostId String @unique
+}
+
+model IntegrationCredential {
+  userId    String
+  provider  String
+  encrypted String
+  user      LocalUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([userId, provider])
 }
 
 model OAuthAttempt {

@@ -9,6 +9,6 @@ export default defineConfig({
   server: {
     port: 3180,
     strictPort: true,
-    proxy: { '/api': 'http://127.0.0.1:3181' },
+    proxy: { '/api/': { target: 'http://127.0.0.1:3181', changeOrigin: false } },
   },
 });

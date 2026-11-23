@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { ApiProvider, Evaluation } from '../shared/contracts.js';
 import { apiProviders } from '../shared/contracts.js';
 import { AppError } from './config.js';
-import type { Config } from './config.js';
+import type { IntegrationCredentials } from './integration-credentials.js';
 import { audit, json, ownedAccount, reserveUsage, settingsOf } from './db.js';
 import { aiAssessmentSchema, reconcile } from './classification.js';
 import type { ClassificationInput } from './classification.js';
@@ -47,24 +47,19 @@ function extract(provider: ApiProvider, body: unknown) {
 }
 
 export class AiProviders implements AIProvider {
-  private keys: Record<ApiProvider, string>;
-  constructor(private db: PrismaClient, cfg: Config, private chat: ChatGPTPlanProvider, private fetcher = fetch) {
-    this.keys = { openai: cfg.OPENAI_API_KEY, anthropic: cfg.ANTHROPIC_API_KEY, gemini: cfg.GEMINI_API_KEY };
-  }
-  statuses() {
-    return { openai: Boolean(this.keys.openai), anthropic: Boolean(this.keys.anthropic), gemini: Boolean(this.keys.gemini) };
-  }
+  constructor(private db: PrismaClient, private credentials: IntegrationCredentials, private chat: ChatGPTPlanProvider, private fetcher = fetch) {}
   async structured<T extends z.ZodType>(userId: string, accountId: string, name: 'classification' | 'assistant', schema: T, input: unknown): Promise<z.infer<T>> {
     const settings = settingsOf(await ownedAccount(this.db, userId, accountId));
     if (settings.aiProvider === 'chatgpt') return this.chat.structured(userId, accountId, settings.aiModel, name, schema, input);
     const provider = apiProviders.find(key => key === settings.aiProvider);
-    if (!provider || !settings.aiPaidConsent || !this.keys[provider]) {
+    const key = provider && settings.aiPaidConsent ? await this.credentials.apiKey(userId, provider) : '';
+    if (!provider || !key) {
       throw new AppError(403, 'ai_not_enabled', 'Skonfiguruj klucz API i wyraź zgodę na rozliczane wywołania w Ustawieniach.');
     }
     const model = modelName.parse(settings.aiModel);
     const { $schema: _meta, ...wire } = z.toJSONSchema(schema);
     const prompt = await readPrompt(name) + (name === 'assistant' && (input as { language?: string })?.language === 'en' ? '\nRespond in English.' : '');
-    const request = apiRequest(provider, this.keys[provider], model, prompt, wire, JSON.stringify(input));
+    const request = apiRequest(provider, key, model, prompt, wire, JSON.stringify(input));
     await reserveUsage(this.db, accountId, 'ai');
     let response: Response;
     try {

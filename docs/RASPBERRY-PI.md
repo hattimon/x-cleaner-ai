@@ -20,12 +20,12 @@ docker compose -f compose.yaml -f compose.registry.yaml up -d --no-build --wait
 
 The stack uses `restart: unless-stopped`. The Docker daemon must start with Ubuntu. You can enable it on the Raspberry Pi with `sudo systemctl enable --now docker`. A stack deliberately stopped by its owner stays stopped. [Docker restart policies](https://docs.docker.com/engine/containers/start-containers-automatically/)
 
-The default listener binds to the Pi's loopback. From a client computer with authorized SSH access, forward a local port.
+Open `http://<pi-private-ip>:3180` from your local network. Use a private HTTPS reverse proxy for encrypted browser access. To authorize ChatGPT from another device, open the dashboard through a localhost port forwarded to the Pi using your SSH account.
 
 ```bash
 ssh -N -L 3180:127.0.0.1:3180 user@your-pi
 ```
 
-Visit [http://localhost:3180](http://localhost:3180) on the client. If a Windows copy already uses 3180, use another local forwarded port and set the Pi's `PUBLIC_ORIGIN` and `SIWC_CALLBACK_ORIGIN` to that browser-facing port. Keep the right-hand port in the SSH command equal to the Pi's `APP_PORT`. For direct LAN access, terminate HTTPS on a private reverse proxy, configure `PUBLIC_ORIGIN` to that origin, retain the browser's Host header and restrict access at the network boundary. Official ChatGPT plan authorization in this release requires the matching HTTP loopback route.
+Visit [http://localhost:3180](http://localhost:3180) on the client. If that port is occupied, use a different local port on the left-hand side and browse to it. Keep the right-hand port equal to the deployed app port. When using a private HTTPS reverse proxy, set `PUBLIC_ORIGIN` to that origin and retain the browser's Host header.
 
 Alternatively, install the standalone image from the DCC App Store. It runs PostgreSQL, the backend and the dashboard inside one container. [DCC installation](DCC-INSTALL.md)

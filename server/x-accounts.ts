@@ -7,7 +7,9 @@ import { AppError } from './config.js';
 import { audit, iso, json, lock, ownedAccount, reserveUsage, settingsOf } from './db.js';
 import { digest, Vault } from './security.js';
 import { exchangeXCode, LiveXProvider, refreshX, revokeX, xCallback } from './x-provider.js';
-import type { OAuthTokens, XProvider } from './x-provider.js';
+import type { OAuthTokens, XClientCredentials, XOAuthConfig, XProvider } from './x-provider.js';
+
+type StoredTokens = OAuthTokens & { client?: XClientCredentials };
 
 const archiveIdentity = z.array(z.object({
   account: z.object({ accountId: z.string().regex(/^\d{1,24}$/), username: z.string().regex(/^[A-Za-z0-9_]{1,32}$/), accountDisplayName: z.string().max(120).optional() }),
@@ -61,10 +63,11 @@ const hasActiveOperations = (accountId: string) => ({ batch: { accountId }, stat
 export class XAccounts {
   constructor(private db: PrismaClient, private config: Config, private vault: Vault, private fetcher = fetch) {}
 
-  async connect(userId: string, code: string, verifier: string) {
-    const tokens = await exchangeXCode(this.config, code, verifier, this.fetcher);
+  async connect(userId: string, code: string, verifier: string, config: XOAuthConfig = this.config) {
+    const tokens = await exchangeXCode(config, code, verifier, this.fetcher);
     const profile = await new LiveXProvider(tokens.access_token, this.fetcher).me();
-    const encrypted = this.vault.seal(tokens, 'x:' + userId + ':' + profile.xId);
+    const client = { X_CLIENT_ID: config.X_CLIENT_ID, X_CLIENT_SECRET: config.X_CLIENT_SECRET };
+    const encrypted = this.vault.seal({ ...tokens, client }, 'x:' + userId + ':' + profile.xId);
     const scopes = (tokens.scope ?? '').split(/\s+/).filter(Boolean);
     const metadata = { name: profile.name, username: profile.username, avatarUrl: profile.avatarUrl, verified: profile.verified, followingCount: profile.follows };
     const authorization = {
@@ -129,13 +132,13 @@ export class XAccounts {
       await lock(tx, 'account:' + account.id);
       const current = await ownedAccount(tx, account.userId, account.id);
       if (!current.encrypted || current.connectionError === 'x_unauthorized' || current.mode !== 'LIVE') return { error: true as const };
-      const tokens = this.vault.open<OAuthTokens>(current.encrypted, context);
+      const tokens = this.vault.open<StoredTokens>(current.encrypted, context);
       if (current.expiresAt && current.expiresAt.getTime() > Date.now() + 60000) return { value: tokens.access_token };
       try {
         if (!tokens.refresh_token) throw new AppError(401, 'x_unauthorized', 'Brak tokena odświeżania.');
-        const next = await refreshX(this.config, tokens.refresh_token, this.fetcher);
+        const next = await refreshX(tokens.client ?? this.config, tokens.refresh_token, this.fetcher);
         await tx.xAccount.update({ where: { id: current.id }, data: {
-          encrypted: this.vault.seal({ ...next, refresh_token: next.refresh_token ?? tokens.refresh_token }, context),
+          encrypted: this.vault.seal({ ...next, client: tokens.client, refresh_token: next.refresh_token ?? tokens.refresh_token }, context),
           expiresAt: new Date(Date.now() + next.expires_in * 1000), scopes: next.scope ? next.scope.split(/\s+/) : current.scopes,
           connectionError: null,
         } });
@@ -202,24 +205,26 @@ export class XAccounts {
       return account;
     });
     if (!previous.encrypted) return { revoked: true };
-    const tokens = this.vault.open<OAuthTokens>(previous.encrypted, 'x:' + userId + ':' + previous.xId);
+    const tokens = this.vault.open<StoredTokens>(previous.encrypted, 'x:' + userId + ':' + previous.xId);
+    const client = tokens.client ?? this.config;
     const results = await Promise.allSettled([
-      ...(tokens.refresh_token ? [revokeX(this.config, tokens.refresh_token, 'refresh_token', this.fetcher)] : []),
-      revokeX(this.config, tokens.access_token, 'access_token', this.fetcher),
+      ...(tokens.refresh_token ? [revokeX(client, tokens.refresh_token, 'refresh_token', this.fetcher)] : []),
+      revokeX(client, tokens.access_token, 'access_token', this.fetcher),
     ]);
     return { revoked: results.every(result => result.status === 'fulfilled') };
   }
 
-  diagnostics(account?: XAccount) {
+  diagnostics(config: XOAuthConfig, account?: XAccount) {
     const observations = accessSchema.safeParse(account?.capabilities);
     return {
-      configured: Boolean(this.config.X_CLIENT_ID), writeEnabled: this.config.X_ENABLE_WRITE, callback: xCallback(this.config),
+      configured: Boolean(config.X_CLIENT_ID), clientId: config.X_CLIENT_ID, hasSecret: Boolean(config.X_CLIENT_SECRET),
+      writeEnabled: config.X_ENABLE_WRITE, callback: xCallback(config),
       operations: accessOperations.map(operation => {
         let status: AccessState = 'unverified';
         const stored = observations.success ? observations.data[operation.key] : null;
         if (account?.mode === 'ARCHIVE') status = 'offline';
         else if (!account || !accountView(account).connected || operation.scopes.some(scope => !account.scopes.includes(scope))
-          || (['unfollow', 'follow'].includes(operation.key) && !this.config.X_ENABLE_WRITE)) status = 'missing';
+          || (['unfollow', 'follow'].includes(operation.key) && !config.X_ENABLE_WRITE)) status = 'missing';
         else if (stored) status = stored.status;
         return { key: operation.label, status, detail: stored?.status === status ? stored.detail : baseDetail[status] };
       }),

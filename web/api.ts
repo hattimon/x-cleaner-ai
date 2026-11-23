@@ -1,4 +1,4 @@
-import type { Account, Dashboard, Integrations, ProfileDetail, ProfileEntry, ProfileQuery, Page, Scan, Cleanup, CleanupHistory, Preference, ModelChoice, Settings, AssistantReply, Audit } from '../shared/contracts.js';
+import type { Account, ApiProvider, Dashboard, Integrations, ProfileDetail, ProfileEntry, ProfileQuery, Page, Scan, Cleanup, CleanupHistory, Preference, ModelChoice, Settings, AssistantReply, Audit } from '../shared/contracts.js';
 import { getLanguage } from './i18n.js';
 
 export type Session = { user: { id: string; username: string; initialPassword: boolean } | null; csrf: string | null };
@@ -42,6 +42,8 @@ export const api = {
   logout: () => request('/session/logout', 'POST').then(() => setCsrf()),
   changePassword: (currentPassword: string, newPassword: string) =>
     request('/session/password', 'POST', { currentPassword, newPassword }).then(() => setCsrf()),
+  changeUsername: (username: string, currentPassword: string) =>
+    request<{ username: string }>('/session/username', 'POST', { username, currentPassword }),
   accounts: () => request<Account[]>('/accounts'),
   archive: (accountData: string, following: string[]) => request<Account>('/accounts/archive', 'POST', { account: accountData, following }),
   disconnect: (id: string) => request<{ revoked: boolean }>(account(id) + '/disconnect', 'POST'),
@@ -59,11 +61,15 @@ export const api = {
   cleanupHistory: (id: string) => request<CleanupHistory[]>(account(id) + '/cleanup'),
   confirm: (id: string, batch: Cleanup, operation: Cleanup['items'][number]) => request<Cleanup>(account(id) + '/cleanup/' + batch.id, 'POST', { operationId: operation.id, confirm: batch.direction, username: operation.username }),
   integrations: (id?: string) => request<Integrations>('/integrations' + (id ? '?accountId=' + id : '')),
+  saveXClient: (client: { clientId: string; clientSecret?: string; writeEnabled: boolean }) =>
+    request('/integrations/x/client', 'PUT', client),
   startX: () => request<{ url: string }>('/integrations/x/start', 'POST', { acceptCosts: true }),
   startChat: () => request<{ url: string }>('/integrations/chatgpt/start', 'POST', {}),
   finishChat: (receipt: string) => request<Integrations['chat']>('/integrations/chatgpt/finish', 'POST', { receipt }),
   disconnectChat: (forget = false) => request<{ revoked: boolean }>('/integrations/chatgpt/disconnect', 'POST', { forget }),
   models: () => request<ModelChoice[]>('/integrations/chatgpt/models'),
+  saveApiKey: (provider: ApiProvider, key: string) => request('/integrations/keys/' + provider, 'PUT', { key }),
+  removeApiKey: (provider: ApiProvider) => request('/integrations/keys/' + provider, 'DELETE'),
   settings: (id: string) => request<SettingsData>(account(id) + '/settings'),
   saveSettings: (id: string, settings: Settings) => request<Account>(account(id) + '/settings', 'PUT', settings),
   report: (id: string, format: 'csv' | 'json') => '/api' + account(id) + '/report/' + format,

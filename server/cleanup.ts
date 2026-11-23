@@ -18,7 +18,7 @@ type Direction = typeof actions[number];
 const result = z.object({ message: z.string().optional(), following: z.boolean().optional(), pendingFollow: z.boolean().optional() });
 
 export class Cleanup {
-  constructor(private db: PrismaClient, private writeEnabled: boolean, private provider: (account: XAccount) => XProvider) {}
+  constructor(private db: PrismaClient, private writeEnabled: boolean | ((userId: string, tx: Prisma.TransactionClient) => Promise<boolean>), private provider: (account: XAccount) => XProvider) {}
 
   private view(batch: Batch, account: XAccount): CleanupView {
     return {
@@ -96,7 +96,8 @@ export class Cleanup {
       const { batch, profile } = operation;
       if (batch.direction !== input.confirm || profile.username !== input.username) throw new AppError(400, 'confirmation', 'Potwierdzenie nie odpowiada wybranemu profilowi.');
       if (batch.expiresAt.getTime() <= Date.now()) throw new AppError(409, 'preview_expired', 'Podgląd wygasł. Przygotuj go ponownie.');
-      if (!this.writeEnabled || !account.encrypted || account.connectionError === 'x_unauthorized' ||
+      const writeEnabled = typeof this.writeEnabled === 'boolean' ? this.writeEnabled : await this.writeEnabled(userId, tx);
+      if (!writeEnabled || !account.encrypted || account.connectionError === 'x_unauthorized' ||
           !['follows.write', 'users.read', 'tweet.read'].every(scope => account.scopes.includes(scope))) {
         throw new AppError(403, 'x_writes_disabled', 'Włącz zapis X i połącz konto z uprawnieniem follows.write.');
       }

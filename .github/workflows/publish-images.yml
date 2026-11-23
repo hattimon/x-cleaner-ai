@@ -47,6 +47,13 @@ jobs:
             --label "org.opencontainers.image.revision=$GITHUB_SHA" \
             --label "org.opencontainers.image.version=$VERSION" \
             --tag "$image:$VERSION-$ARCH" --push .
+      - name: Check the standalone store installation
+        if: matrix.target == 'standalone'
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}:$VERSION-$ARCH"
+          container=$(docker run --rm -d -p 127.0.0.1::8080 "$image")
+          trap 'docker stop "$container" >/dev/null || true' EXIT
+          node ops/check-store-start.mjs "$container"
 
   publish:
     needs: build

@@ -7,8 +7,10 @@ const config = readConfig();
 const db = new PrismaClient();
 const { app, scanner } = await makeApp(db, config);
 const seed = process.env.XC_INITIAL_OWNER_SEED;
+const ownerName = process.env.XC_INITIAL_OWNER_NAME;
 delete process.env.XC_INITIAL_OWNER_SEED;
-const initialOwner = seed && /^[A-Za-z0-9_-]{43}$/.test(seed) ? standaloneOwner(seed) : undefined;
+delete process.env.XC_INITIAL_OWNER_NAME;
+const initialOwner = seed && /^[A-Za-z0-9_-]{43}$/.test(seed) ? standaloneOwner(seed, ownerName === 'admin' ? ownerName : undefined) : undefined;
 const credentials = await ensureOwner(db, initialOwner);
 if (credentials && !initialOwner) {
   app.log.info({ event: 'initial_credentials', service: 'x-cleaner-ai', login: credentials.username, ...credentials }, 'Initial application credentials');
@@ -19,6 +21,7 @@ let closing = false;
 const close = async () => {
   if (closing) return;
   closing = true;
+  await scanner.stop();
   await app.close();
   await db.$disconnect();
 };

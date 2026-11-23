@@ -49,12 +49,12 @@ try {
   await mkdir(data, { recursive: true, mode: 0o700 });
   if (!await exists(secretFile)) {
     const seed = secret(32);
-    await writeFile(secretFile, JSON.stringify({ pg: secret(24), key: secret(32), seed }), { flag: 'wx', mode: 0o600 });
-    const owner = standaloneOwner(seed);
+    const owner = standaloneOwner(seed, 'admin');
+    await writeFile(secretFile, JSON.stringify({ pg: secret(24), key: secret(32), seed, ownerName: owner.username }), { flag: 'wx', mode: 0o600 });
     // DCC Web's log viewer uses the generic key=value detector.
     console.log(`initial_credentials service=x-cleaner-ai login=${owner.username} password=${owner.password}`);
   }
-  const { pg, key, seed } = JSON.parse(await readFile(secretFile, 'utf8'));
+  const { pg, key, seed, ownerName } = JSON.parse(await readFile(secretFile, 'utf8'));
   if (!/^[A-Za-z0-9_-]{32}$/.test(pg) || !/^[A-Za-z0-9_-]{43}$/.test(key)) throw new Error('Invalid persistent credential file');
 
   if (!await exists(join(data, 'PG_VERSION'))) {
@@ -81,7 +81,7 @@ try {
   };
   await run('node', ['node_modules/prisma/build/index.js', 'migrate', 'deploy'], { env });
   if (stopping) throw new Error('Interrupted');
-  required('node', ['dist/server/main.js'], { env: { ...env, XC_INITIAL_OWNER_SEED: seed } });
+  required('node', ['dist/server/main.js'], { env: { ...env, XC_INITIAL_OWNER_SEED: seed, XC_INITIAL_OWNER_NAME: ownerName } });
   required('nginx', ['-e', '/dev/stderr', '-g', 'daemon off;']);
   if (seed) {
     for (let attempt = 0; attempt < 60 && !stopping; attempt++) {

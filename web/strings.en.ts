@@ -411,4 +411,10 @@ Zlecono skanowanie listy X.|Queued an X scan.
 Zmieniono hasło właściciela.|The owner password was changed.
 Zresetowano hasło właściciela z terminala.|The owner password was reset from the terminal.
 Zbyt wiele prób. Spróbuj za minutę.|Too many attempts. Try again in a minute.
+Otwórz formularz z adresu panelu i spróbuj ponownie.|Open the form from the dashboard address and try again.
+Otwórz panel przez localhost, prywatny adres IP lub skonfigurowany adres HTTPS.|Open the dashboard on localhost, a private IP address or the configured HTTPS address.
+Dodaj identyfikator aplikacji X na ekranie Integracje.|Add the X app Client ID in Integrations.
+Aby połączyć ChatGPT, otwórz panel na localhost.|Open the dashboard on localhost to connect ChatGPT.
+Ta nazwa użytkownika jest zajęta.|That username is already in use.
+Zmieniono nazwę lokalnego użytkownika.|Changed the local username.
 `.trim().split('\n').map(line => line.split('|')));
