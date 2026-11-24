@@ -4,7 +4,7 @@ import type { FormEvent, ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Archive, ArrowUpRight, CloudCog, Download, KeyRound, Link2, Plus, ShieldCheck, Sparkles, Upload, UsersRound } from 'lucide-react';
 import type { Account, ApiProvider, Integrations, Settings } from '../shared/contracts.js';
-import { apiProviders, settingsSchema } from '../shared/contracts.js';
+import { apiProviders, settingsSchema, xClientIdPattern } from '../shared/contracts.js';
 import { api } from './api.js';
 import { Badge, Button, Dialog, Empty, ErrorBanner, Load, Panel, ProfileIdentity } from './ui.js';
 import type { Notify } from './ui.js';
@@ -192,6 +192,7 @@ export function IntegrationsView({ account, accounts, select, data, run, navigat
   const [working, setWorking] = useState(false);
   const { chat, x, mcp } = data;
   const linked = accounts.filter(item => item.connected);
+  const xReady = xClientIdPattern.test(x.clientId);
   const localPanel = 'http://localhost' + (location.port ? ':' + location.port : '') + '/integracje';
   const models = useQuery({ queryKey: ['models'], queryFn: api.models, enabled: false });
   const signIn = async (start: () => Promise<{ url: string }>) => {
@@ -206,11 +207,11 @@ export function IntegrationsView({ account, accounts, select, data, run, navigat
     <Panel title="X" icon={<CloudCog size={18} />} right={<Badge color={linked.length ? 'green' : 'neutral'}>{linked.length ? tr("Połączono") : tr("Rozłączone")}</Badge>}>
       <div className="section-content stack">
         <div className="row-actions"><Button tone="primary" icon={<Link2 size={17} />} disabled={working} onClick={() => {
-          if (x.configured) void signIn(api.startX);
+          if (xReady) void signIn(api.startX);
           else setConfigureX(true);
         }}>{linked.length ? phrase('Dodaj kolejne konto X', 'Add another X account') : tr("Połącz konto X")}</Button>
           <Button icon={<Archive size={17} />} onClick={openArchive}>{tr("Importuj archiwum")}</Button></div>
-        <small className="muted">{x.configured ? xIdentityCost() : phrase('Kreator poprowadzi Cię przez konsolę X i poda wartości do wklejenia.', 'The wizard guides you through the X console with values to copy and paste.')}</small>
+        <small className="muted">{xReady ? xIdentityCost() : phrase('Kreator poprowadzi Cię przez konsolę X i poda wartości do wklejenia.', 'The wizard guides you through the X console with values to copy and paste.')}</small>
         {linked.length > 0 && <label className="form-stack">{phrase('Aktywne konto X', 'Active X account')}
           <select value={account?.connected ? account.id : ''} onChange={event => { if (event.target.value) select(event.target.value); }}>
             {!account?.connected && <option value="">{phrase('Wybierz konto X', 'Choose an X account')}</option>}

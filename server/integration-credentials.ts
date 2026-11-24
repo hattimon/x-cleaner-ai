@@ -1,6 +1,6 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { z } from 'zod';
-import { apiProviders } from '../shared/contracts.js';
+import { apiProviders, xClientIdPattern } from '../shared/contracts.js';
 import type { ApiProvider } from '../shared/contracts.js';
 import type { Config } from './config.js';
 import { audit, lock } from './db.js';
@@ -8,7 +8,7 @@ import type { Vault } from './security.js';
 import type { XOAuthConfig } from './x-provider.js';
 
 export const xClientSchema = z.object({
-  clientId: z.string().trim().regex(/^[A-Za-z0-9_-]{1,250}$/),
+  clientId: z.string().trim().regex(xClientIdPattern),
   clientSecret: z.string().trim().max(512).optional(),
   writeEnabled: z.boolean().default(false),
 }).strict();

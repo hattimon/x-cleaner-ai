@@ -164,6 +164,11 @@ describe.sequential('lokalny backend, integracje i uprawnienia', () => {
   it('zapisuje konfigurację w panelu i łączy dodatkowe konto z adresem LAN', async () => {
     const clientSecret = opaque();
     const fromLan = { ...headers, ...lanHeaders };
+    const invalid = await app.inject({
+      method: 'PUT', url: '/api/integrations/x/client', headers: fromLan,
+      payload: { clientId: '12345678' },
+    });
+    expect(invalid.statusCode).toBe(400);
     const saved = await app.inject({
       method: 'PUT', url: '/api/integrations/x/client', headers: fromLan,
       payload: { clientId: 'local-x-client', clientSecret, writeEnabled: true },
@@ -212,9 +217,14 @@ describe.sequential('lokalny backend, integracje i uprawnienia', () => {
   });
 
   it('używa loopbacku ChatGPT, sprawdza state, jednorazowość i powiązanie z sesją', async () => {
+    const legacyId = '268a75e1-56eb-4c28-8015-c9be0909db21';
+    await db.hostIdentity.create({ data: { key: 'chatgpt', hostId: legacyId } });
     const start = await app.inject({ method: 'POST', url: '/api/integrations/chatgpt/start', headers, payload: {} });
     const begin = new URL(start.json().url);
     expect(begin.searchParams.get('client_id')).toBe('dynamic_agent_client');
+    const hostId = 'urn:uuid:' + legacyId;
+    expect(begin.searchParams.get('ext_agent_host_id')).toBe(hostId);
+    await expect(db.hostIdentity.findUnique({ where: { key: 'chatgpt' } })).resolves.toMatchObject({ hostId });
     const cb = '/api/integrations/chatgpt/callback?error=access_denied&state=' + begin.searchParams.get('state');
     expect((await app.inject({ url: cb, headers: { host: 'localhost:3182' } })).statusCode).toBe(400);
     const received = await app.inject({ url: cb, headers: { host: '127.0.0.1:3182' } });

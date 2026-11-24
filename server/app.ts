@@ -3,7 +3,7 @@ import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
 import type { PrismaClient } from '@prisma/client';
 import { z, ZodError } from 'zod';
-import { apiProviders, preferences, profileQuerySchema, settingsSchema } from '../shared/contracts.js';
+import { apiProviders, preferences, profileQuerySchema, settingsSchema, xClientIdPattern } from '../shared/contracts.js';
 import type { Config } from './config.js';
 import { AppError } from './config.js';
 import { Vault, opaque } from './security.js';
@@ -113,7 +113,7 @@ export async function makeApp(db: PrismaClient, config: Config, fetcher = fetch,
     const identity = await auth.require(req);
     z.object({ acceptCosts: z.literal(true) }).parse(req.body);
     const xClient = await credentials.x(identity.userId, auth.panel(req));
-    if (!xClient.X_CLIENT_ID) throw new AppError(409, 'x_not_configured', 'Dodaj identyfikator aplikacji X na ekranie Integracje.');
+    if (!xClientIdPattern.test(xClient.X_CLIENT_ID)) throw new AppError(409, 'x_not_configured', 'Dodaj identyfikator aplikacji X na ekranie Integracje.');
     const pending = await attempts.begin(identity, 'x', { xClient });
     return { url: xAuthorization(xClient, pending.state, pending.challenge) };
   });

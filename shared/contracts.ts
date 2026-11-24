@@ -10,6 +10,7 @@ export const activeJobStates = ['QUEUED', 'RUNNING', 'WAITING', 'PAUSED'] as con
 export const activities = ['recent', 'occasional', 'inactive', 'unknown'] as const;
 export const actions = ['UNFOLLOW', 'FOLLOW'] as const;
 export const apiProviders = ['openai', 'anthropic', 'gemini'] as const;
+export const xClientIdPattern = /^(?![0-9]+$)[A-Za-z0-9_-]{1,250}$/;
 export type ApiProvider = typeof apiProviders[number];
 export type Mode = typeof modes[number];
 export type Decision = typeof decisions[number];

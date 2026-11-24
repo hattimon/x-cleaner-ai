@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { ArrowUpRight, Check, ClipboardPaste, Copy } from 'lucide-react';
+import { xClientIdPattern } from '../shared/contracts.js';
 import type { Integrations } from '../shared/contracts.js';
 import type { Run } from './account-views.js';
 import { api } from './api.js';
@@ -11,7 +12,6 @@ const appName = 'X-Cleaner AI';
 const website = 'https://github.com/hattimon/x-cleaner-ai';
 const appDescription = 'Self-hosted dashboard for reviewing the accounts you follow on X and confirming individual follow or unfollow actions.';
 const useCase = 'X-Cleaner AI is a self-hosted tool with publicly available source code for reviewing the accounts a user follows on X. Users authorize their own accounts through OAuth. The app reads the authorized identity, following list, profile information and available posts to summarize activity and flag potential spam for review. Users can run or schedule read-only scans, import their own X archive and export review results. Each follow or unfollow requires individual confirmation. Users can opt to send derived metrics, evidence categories, post references and their assistant questions to a selected AI provider for analysis. The app stores its data on the user’s server and encrypts OAuth tokens.';
-const clientIdPattern = /^[A-Za-z0-9_-]{1,250}$/;
 const lastStep = 3;
 
 export const xIdentityCost = () => phrase('Po autoryzacji X może naliczyć koszt jednego odczytu profilu.', 'X may charge for one profile lookup after you approve access.');
@@ -69,7 +69,8 @@ export function XConnectionWizard({ x, run, close }: { x: Integrations['x']; run
     phrase('Ustawienia OAuth', 'OAuth settings'),
     phrase('Połączenie konta', 'Connect account'),
   ];
-  const validClientId = clientIdPattern.test(clientId.trim());
+  const trimmedClientId = clientId.trim();
+  const validClientId = xClientIdPattern.test(trimmedClientId);
 
   useEffect(() => { heading.current?.focus(); }, [step]);
 
@@ -94,7 +95,7 @@ export function XConnectionWizard({ x, run, close }: { x: Integrations['x']; run
     setBusy(true);
     const result = await run(async () => {
       try {
-        await api.saveXClient({ clientId: clientId.trim(), clientSecret: clientSecret.trim() || undefined, writeEnabled });
+        await api.saveXClient({ clientId: trimmedClientId, clientSecret: clientSecret.trim() || undefined, writeEnabled });
         return connect ? await api.startX() : { url: null };
       } catch (failure) {
         setError(failure);
@@ -151,12 +152,12 @@ export function XConnectionWizard({ x, run, close }: { x: Integrations['x']; run
           <p>{phrase('W aplikacji w konsoli X otwórz Keys and tokens. W sekcji OAuth 2.0 skopiuj wartość Client ID i wklej ją tutaj.', 'Open Keys and tokens for your app in the X console. In the OAuth 2.0 section, copy the Client ID and paste it here.')}</p>
           <div className="row-actions"><ConsoleLink /></div>
           <label>Client ID<input ref={idField} value={clientId} onChange={event => setClientId(event.target.value)}
-            autoComplete="off" spellCheck={false} maxLength={250} aria-invalid={Boolean(clientId.trim()) && !validClientId} required /></label>
+            autoComplete="off" spellCheck={false} maxLength={250} aria-invalid={Boolean(trimmedClientId) && !validClientId} required /></label>
           <div className="row-actions">
             <Button tone="quiet" icon={<ClipboardPaste size={16} />} onClick={() => void pasteId()}>{phrase('Wklej Client ID', 'Paste Client ID')}</Button>
             {pasteHelp && <small className="muted" role="status">{phrase('Skopiuj Client ID z konsoli, kliknij pole i naciśnij Ctrl+V.', 'Copy the Client ID in the console, select the field and press Ctrl+V.')}</small>}
           </div>
-          {clientId.trim() && !validClientId && <small role="alert">{phrase('Sprawdź wartość Client ID z sekcji OAuth 2.0.', 'Check the Client ID value from the OAuth 2.0 section.')}</small>}
+          {trimmedClientId && !validClientId && <small role="alert">{phrase('Skopiuj Client ID z sekcji OAuth 2.0 keys w konsoli X. Sam numer aplikacji lub konta nie zadziała.', 'Copy the Client ID from OAuth 2.0 keys in the X console. A numeric app or account ID will not work.')}</small>}
           <details className="integration-details">
             <summary>{phrase('Opcje zaawansowane', 'Advanced options')}</summary>
             <label>Client Secret <small className="muted">{phrase('Tylko dla klienta poufnego', 'Confidential clients only')}</small>

@@ -25,12 +25,13 @@ it('buduje oficjalne autoryzacje z PKCE oraz dynamicznym klientem ChatGPT', () =
   expect(x.origin).toBe('https://x.com');
   expect(x.searchParams.get('scope')).not.toContain('follows.write');
   expect(x.searchParams.get('code_challenge_method')).toBe('S256');
-  const chat = new URL(chatAuthorization(cfg, 'stable-host', { state: 'state', nonce: 'nonce', verifier: 'verifier', challenge }));
+  const hostId = 'urn:uuid:54204f2f-8756-4352-a8cc-1363e3aca949';
+  const chat = new URL(chatAuthorization(cfg, hostId, { state: 'state', nonce: 'nonce', verifier: 'verifier', challenge }));
   expect(chat.searchParams.get('client_id')).toBe('dynamic_agent_client');
   expect(chat.searchParams.get('redirect_uri')).toBe('http://127.0.0.1:3180/api/integrations/chatgpt/callback');
-  expect(chat.searchParams.get('ext_agent_host_id')).toBe('stable-host');
+  expect(chat.searchParams.get('ext_agent_host_id')).toBe(hostId);
   expect(chat.searchParams.get('scope')).toContain('chatgpt.tokens.use.direct');
-  expect(new URL(chatAuthorization(cfg, 'stable-host', { state: 'state', nonce: 'nonce', verifier: 'verifier', challenge, clientId: 'oaiapp_test' })).searchParams.get('agent_name_hint')).toBeNull();
+  expect(new URL(chatAuthorization(cfg, hostId, { state: 'state', nonce: 'nonce', verifier: 'verifier', challenge, clientId: 'oaiapp_test' })).searchParams.get('agent_name_hint')).toBeNull();
 });
 
 it('czyta ukończony strumień SSE z rzeczywistymi polami zużycia i wykrywa przerwanie', async () => {

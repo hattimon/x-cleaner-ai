@@ -201,6 +201,9 @@ test('integracje zapisują ustawienia X i klucz AI oraz otwierają autoryzację 
   await expect(id).toBeFocused();
   await id.fill('wrong format');
   await expect(id).toHaveAttribute('aria-invalid', 'true');
+  await id.fill('12345678');
+  await expect(x.getByRole('alert')).toContainText('Sam numer aplikacji lub konta nie zadziała.');
+  await expect(x.getByRole('button', { name: 'Zapisz i połącz z X' })).toBeDisabled();
   await id.fill('qa-browser-client');
   await x.getByRole('button', { name: 'Wstecz', exact: true }).click();
   await expect(x.getByText('Read and write', { exact: true })).toBeVisible();

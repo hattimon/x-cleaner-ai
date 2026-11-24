@@ -15,6 +15,7 @@ import type { ClassificationInput } from './classification.js';
 const issuer = 'https://auth.openai.com';
 const resource = 'https://api.openai.com/v1';
 const registrationClientId = 'dynamic_agent_client';
+const legacyHostUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const usageScope = 'chatgpt.tokens.use.direct';
 const chatScopes = ['openid', 'profile', 'email', 'offline_access', 'resource.invoke', usageScope];
 const jwks = createRemoteJWKSet(new URL(issuer + '/.well-known/jwks.json'), { timeoutDuration: 5000 });
@@ -172,9 +173,15 @@ export class ChatGPTPlanProvider implements AIProvider {
 
   async hostId() {
     const host = await this.db.hostIdentity.upsert({
-      where: { key: 'chatgpt' }, update: {}, create: { key: 'chatgpt', hostId: randomUUID() },
+      where: { key: 'chatgpt' }, update: {}, create: { key: 'chatgpt', hostId: 'urn:uuid:' + randomUUID() },
     });
-    return host.hostId;
+    if (!legacyHostUuid.test(host.hostId)) return host.hostId;
+
+    const hostId = 'urn:uuid:' + host.hostId;
+    await this.db.hostIdentity.updateMany({
+      where: { key: 'chatgpt', hostId: host.hostId }, data: { hostId },
+    });
+    return hostId;
   }
   requireEnabled() {
     if (!this.config.ENABLE_CHATGPT_PLAN) throw new AppError(403, 'chat_disabled', 'Włącz integrację ChatGPT Plan Usage w konfiguracji serwera.');

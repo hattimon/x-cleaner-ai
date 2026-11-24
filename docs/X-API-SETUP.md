@@ -5,7 +5,7 @@ Open **Integrations → Connect X account** to start the wizard. It keeps the X 
 1. Sign in to the X console and complete the **Developer Program** form with the prepared use-case description.
 2. Choose **New App**. Use the suggested name and the description and use case shown in the wizard.
 3. Open **User authentication settings**. Choose **Native App** and **Read**, or enable **Read and write** for individually confirmed follow and unfollow actions. Copy the exact **Callback URI / Redirect URL** and **Website URL** from the wizard.
-4. Copy the OAuth 2.0 **Client ID** from **Keys and tokens**. Paste it in the wizard and select **Save and connect to X**, then approve access on X. If you already have a Client ID, use **I have a Client ID** to go straight to this step. Confidential clients can add their Client Secret under **Advanced options**. The app stores credentials encrypted on your server.
+4. In **Keys & Tokens → OAuth 2.0 keys**, copy **Client ID** after saving the authentication settings. Paste it in the wizard and select **Save and connect to X**, then approve access on X. If you already have a Client ID, use **I have a Client ID** to go straight to this step. Confidential clients can add their Client Secret under **Advanced options**. The app stores credentials encrypted on your server.
 
 [X Developer setup](https://docs.x.com/x-api/getting-started/getting-access) · [X OAuth with PKCE](https://docs.x.com/fundamentals/authentication/oauth-2-0/authorization-code)
 
